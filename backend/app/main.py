@@ -24,8 +24,15 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes import auth, meetings
 from app.core.config import CORS_ORIGINS, ENV
-from app.core.database import check_database_health, engine
+from app.core.database import Base, check_database_health, engine
 from app.core.logging_config import setup_secure_logging
+from app import models  # noqa: F401 — register models with Base
+
+# Create missing tables safely if not already present
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as _e:
+    pass
 
 # Configure logging with secret redacting filter (Phase 16)
 setup_secure_logging()
