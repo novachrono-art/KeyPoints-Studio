@@ -1,0 +1,35 @@
+# Phase 1 dependencies only.
+# More will be added in later phases (python-multipart, sqlalchemy,
+# ffmpeg-python, whisper, google-genai, reportlab, python-docx, etc.)
+# We keep this file minimal for now so the environment stays easy
+# to reason about and fast to install.
+
+fastapi
+uvicorn[standard]
+python-multipart
+faster-whisper
+python-dotenv
+google-genai
+openai
+pydantic
+reportlab
+python-docx
+sqlalchemy
+alembic
+
+# Phase 14 (Speaker Diarization): MFCC-based speaker clustering.
+# CPU-only, no GPU or HuggingFace token required.
+# scipy   — signal processing (used internally by scikit-learn)
+# scikit-learn — AgglomerativeClustering + StandardScaler
+scipy
+scikit-learn
+
+# Phase 17 (Testing & Performance)
+pytest
+pytest-asyncio
+psutil
+
+# Phase 18 (Production Database & Deployment)
+psycopg2-binary
+
+

@@ -1,0 +1,218 @@
+/* SettingsPage.css - Frosted Glassmorphism Theme */
+
+.settings-page-root {
+  min-height: calc(100vh - 64px);
+  background: transparent;
+  color: var(--ink);
+}
+
+.settings-page-wrap {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+}
+
+.settings-header {
+  margin-bottom: 28px;
+}
+
+.settings-title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--ink);
+  margin: 0;
+}
+
+.settings-sub {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.settings-section-card {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 12px 36px rgba(37, 99, 235, 0.07), 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+.settings-section-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+.settings-section-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 20px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-top: 1px solid rgba(216, 229, 243, 0.6);
+  gap: 16px;
+}
+
+.settings-row-info h4 {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  margin: 0 0 2px;
+}
+
+.settings-row-info p {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.settings-toggle {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: rgba(203, 213, 225, 0.8);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background .2s ease;
+  flex-shrink: 0;
+}
+
+.settings-toggle.checked {
+  background: var(--pine);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+}
+
+.settings-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform .2s ease;
+}
+
+.settings-toggle.checked .settings-toggle-knob {
+  transform: translateX(20px);
+}
+
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.settings-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-weight: 500;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.settings-badge-active {
+  background: rgba(239, 246, 255, 0.85);
+  color: var(--pine);
+  border: 1px solid rgba(191, 219, 254, 0.9);
+}
+
+.settings-badge-roadmap {
+  background: rgba(254, 243, 199, 0.85);
+  color: #B45309;
+  border: 1px solid rgba(253, 230, 138, 0.9);
+}
+
+.settings-badge-client {
+  background: rgba(241, 245, 249, 0.85);
+  color: var(--muted);
+  border: 1px solid rgba(216, 229, 243, 0.8);
+}
+
+.integration-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px;
+  background: rgba(248, 250, 252, 0.65);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(216, 229, 243, 0.7);
+  border-radius: 12px;
+  margin-bottom: 10px;
+}
+
+.integration-item.disabled {
+  opacity: 0.75;
+}
+
+.integration-item:last-child {
+  margin-bottom: 0;
+}
+
+.integration-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.integration-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(216, 229, 243, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+}
+
+.webhook-input-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  max-width: 480px;
+}
+
+.webhook-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(216, 229, 243, 0.85);
+  color: var(--ink);
+  padding: 8px 12px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+
+.webhook-input:focus {
+  border-color: var(--pine);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  background: rgba(255, 255, 255, 0.95);
+}

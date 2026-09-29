@@ -1,0 +1,644 @@
+MOM GENERATOR — MASTER DEVELOPMENT PROMPT
+
+PROJECT PURPOSE
+---------------
+Build a reliable, modular, industry-relevant AI Minutes of Meeting (MOM) Generator.
+
+Core pipeline:
+Upload meeting recording
+→ FFmpeg normalization
+→ Whisper transcription
+→ Database transcript
+→ LLM extraction
+→ Validated MOMResult
+→ MOM + ActionItems database
+→ Editable MOM
+→ PDF/DOCX export
+
+DEVELOPMENT ENVIRONMENT
+-----------------------
+- Windows 11
+- Python 3.11
+- Intel 12th Gen i3 CPU
+- No guaranteed GPU
+- Prefer free/open-source or low-cost resources
+- Backend: FastAPI
+- Frontend: React + Vite + Tailwind CSS
+- ORM: SQLAlchemy
+- Migrations: Alembic
+- Development DB: SQLite
+- Production DB: PostgreSQL
+- STT: faster-whisper
+- Audio: FFmpeg
+- LLM: Groq by default, through a provider abstraction
+- PDF: ReportLab
+- DOCX: python-docx
+
+IMPORTANT RULES
+---------------
+1. Do not rewrite working code unnecessarily.
+2. Inspect the existing implementation before changing it.
+3. Preserve working API contracts whenever possible.
+4. Keep route handlers thin; put business logic in services.
+5. Keep configuration centralized.
+6. Never hardcode API keys.
+7. Never expose .env or secrets.
+8. Avoid unnecessary dependencies.
+9. Prefer simple architecture until scale actually requires complexity.
+10. After meaningful changes, provide exact Windows PowerShell verification commands.
+
+CURRENT PROJECT STATUS
+----------------------
+Phases 1–8 were completed before the database work.
+
+Phase 9 — Database Integration — COMPLETED
+-------------------------------------------
+Phase 9 replaced JSON-file persistence with SQLAlchemy database persistence.
+
+Database entities:
+
+Meeting
+  ├── Transcript (one-to-one)
+  └── MOM (one-to-one)
+         └── ActionItem (one-to-many)
+
+Meeting fields:
+- id
+- public_id
+- title
+- original_filename
+- saved_filename
+- status
+- created_at
+- updated_at
+
+Transcript fields:
+- id
+- meeting_id → meetings.id
+- content
+- created_at
+
+MOM fields:
+- id
+- meeting_id → meetings.id
+- meeting_title
+- meeting_date
+- summary
+- participants
+- discussion_points
+- decisions
+- pending_issues
+- created_at
+
+ActionItem fields:
+- id
+- mom_id → moms.id
+- task
+- assignee
+- deadline
+- status
+- created_at
+
+IMPORTANT RELATIONSHIP
+----------------------
+ActionItem belongs to MOM, not directly to Meeting.
+
+Correct:
+Meeting → MOM → ActionItem
+
+Therefore do not keep a Meeting.action_items relationship unless there is a real foreign key from ActionItem to Meeting.
+
+Expected SQLAlchemy relationships:
+- Meeting.transcript ↔ Transcript.meeting
+- Meeting.mom ↔ MOM.meeting
+- MOM.action_items ↔ ActionItem.mom
+
+MOM SERVICE
+-----------
+mom_service.py owns MOM generation and persistence.
+
+Expected signatures:
+
+generate_mom(db: Session, meeting_id: str, transcript_text: str)
+
+save_mom(db: Session, meeting_id: str, mom: MOMResult)
+
+get_mom(db: Session, meeting_id: str)
+
+Expected flow:
+
+Transcript DB
+→ LLM service
+→ MOMResult
+→ save_mom()
+→ MOM row
+→ ActionItem rows
+
+Do not duplicate this persistence logic in the API route.
+
+LIST SERIALIZATION
+------------------
+SQLite Text columns cannot directly store Python lists.
+
+Fields such as:
+- participants
+- discussion_points
+- decisions
+- pending_issues
+
+must be serialized before database insertion, normally with:
+
+json.dumps(value, ensure_ascii=False)
+
+When reading them back, deserialize them into Python lists.
+
+Never insert a raw Python list into a SQLite Text column.
+
+GROQ CONFIGURATION
+------------------
+Groq model selection must come from configuration/environment variables.
+
+Never hardcode the API key.
+
+If Groq returns:
+404 model_not_found
+
+verify the currently supported model instead of repeatedly retrying an unavailable model.
+
+Keep model configuration consistent. Do not have conflicting model constants that cause llm_service.py to use a different model from config.py.
+
+ALEMBIC
+-------
+The migration directory in this project is:
+
+migrations/
+
+not:
+
+alembic/
+
+When creating migrations:
+1. Inspect the SQLAlchemy models.
+2. Inspect the current DB schema.
+3. Run autogenerate.
+4. Manually review the generated migration.
+5. Apply it.
+6. Verify the schema.
+7. Test the affected service/API.
+
+SQLite has ALTER TABLE limitations, so Alembic batch operations may be necessary.
+
+Do not blindly stack migrations to compensate for a broken local migration.
+
+PHASE 10 — LONG AUDIO HANDLING
+------------------------------
+Priority: VERY HIGH
+
+Goal:
+Make the application reliable for real-world long meetings.
+
+Target pipeline:
+
+Large Audio
+→ FFmpeg
+→ validation/normalization
+→ audio chunks
+→ Whisper per chunk
+→ ordered transcript merge
+→ transcript DB
+
+Example:
+90-minute meeting
+→ 9 × 10-minute chunks
+→ Whisper
+→ merged transcript
+
+Requirements:
+- Support long recordings without excessive memory usage.
+- Preserve chunk order.
+- Handle chunk failures safely.
+- Clean temporary chunk files.
+- Track processing status/progress.
+- Avoid duplicate chunk processing.
+- Keep CPU usage practical on the current machine.
+
+Possible statuses:
+uploaded
+processing_audio
+transcribing
+transcription_partial
+transcribed
+failed
+
+Do not add distributed infrastructure prematurely.
+
+PHASE 11 — ADVANCED MOM INTELLIGENCE
+------------------------------------
+Priority: VERY HIGH
+
+Improve extraction quality and structure.
+
+Target MOM:
+- meeting title
+- meeting date
+- participants
+- summary
+- discussion points
+- decisions
+- action items
+- pending issues
+
+Action items should support:
+- task
+- assignee
+- deadline
+- status
+- priority
+
+Future metadata may include:
+- confidence
+- transcript source segment
+- decision owner
+- action-item owner
+
+Required validation pipeline:
+
+LLM
+→ parse
+→ Pydantic validation
+→ normalization
+→ database
+
+Do not trust arbitrary LLM JSON.
+
+PHASE 12 — AUTHENTICATION & USER MANAGEMENT
+-------------------------------------------
+Priority: HIGH
+
+Add:
+- registration
+- login
+- password hashing
+- JWT authentication
+- token expiration
+- current-user endpoint
+- user ownership of meetings
+
+Target:
+
+User
+└── Meetings
+    ├── Transcript
+    └── MOM
+        └── ActionItems
+
+Backend authorization must ensure users can only access their own meetings and files.
+
+Do not rely on frontend checks or hidden IDs for authorization.
+
+PHASE 13 — MEETING DASHBOARD & HISTORY
+--------------------------------------
+Priority: HIGH
+
+Create a proper dashboard with:
+- total meetings
+- completed meetings
+- failed meetings
+- recent meetings
+- search
+- filters
+- sorting
+- pagination
+- meeting details
+- transcript view
+- MOM view
+- action-item view
+- PDF download
+- DOCX download
+
+Target:
+
+Login
+→ Dashboard
+→ Meeting
+   ├── Transcript
+   ├── MOM
+   └── Action Items
+
+Clearly display processing states.
+
+PHASE 14 — SPEAKER DIARIZATION
+------------------------------
+Priority: HIGH
+
+Add speaker-aware transcription.
+
+Target:
+
+Speaker 1:
+...
+
+Speaker 2:
+...
+
+Pipeline:
+
+Audio
+→ speaker diarization
+→ speaker segments
+→ Whisper
+→ speaker-aware transcript
+→ LLM
+→ MOM
+
+Benefits:
+- participant identification
+- speaker-attributed decisions
+- speaker-attributed action items
+- better summaries
+
+Do not destabilize the core transcription system just to add diarization.
+
+PHASE 15 — BACKGROUND PROCESSING / JOB QUEUE
+--------------------------------------------
+Priority: HIGH
+
+For long-running jobs, move processing away from the request-response cycle.
+
+Target:
+
+POST /upload
+→ create job
+→ return job_id
+→ background worker
+→ FFmpeg
+→ Whisper
+→ LLM
+→ database
+
+Frontend can query:
+
+GET /jobs/{job_id}
+
+Example:
+
+{
+  "status": "transcribing",
+  "progress": 65
+}
+
+Use the simplest suitable background mechanism first. Do not introduce Redis/Celery or distributed infrastructure unless the project actually requires it.
+
+PHASE 16 — PRODUCTION SECURITY
+------------------------------
+Priority: HIGH
+
+Before public deployment implement:
+- authentication
+- authorization
+- rate limiting
+- secure file validation
+- MIME validation
+- size limits
+- safe filenames
+- path traversal protection
+- CORS configuration
+- secure error handling
+- logging without secrets
+- API key protection
+
+Never expose:
+GROQ_API_KEY
+GEMINI_API_KEY
+or any provider secret.
+
+Do not return raw internal exceptions to production users.
+
+PHASE 17 — TESTING & PERFORMANCE
+--------------------------------
+Priority: HIGH
+
+Automated tests should cover:
+- health
+- upload
+- invalid files
+- oversized files
+- FFmpeg
+- transcription
+- transcript retrieval
+- MOM generation
+- MOM persistence
+- action items
+- MOM retrieval
+- MOM editing
+- authorization
+- failure handling
+
+Measure:
+- audio duration
+- transcription time
+- CPU usage
+- RAM usage
+- LLM latency
+- DB latency
+- end-to-end processing time
+
+Test at least:
+5 min
+10 min
+30 min
+60 min
+120 min
+
+PHASE 18 — PRODUCTION DATABASE & DEPLOYMENT
+-------------------------------------------
+Priority: HIGH
+
+Development:
+SQLite
+
+Production:
+PostgreSQL
+
+Target architecture:
+
+React
+→ FastAPI
+→ background worker
+→ PostgreSQL
+→ storage
+→ Whisper/LLM
+
+Use Docker once the architecture is stable. Do not Dockerize too early while the architecture is still changing.
+
+PHASE 19 — ADVANCED AI FEATURES
+------------------------------
+Priority: FUTURE
+
+Only after the core system is stable.
+
+Potential future features:
+- semantic meeting search
+- historical meeting RAG
+- recurring issue detection
+- task tracking
+- deadline reminders
+- executive summaries
+- personalized summaries
+- meeting comparison
+- automatic follow-up generation
+- knowledge base
+
+INTENTIONALLY DEFERRED
+----------------------
+The following are deliberately NOT part of the immediate core roadmap:
+
+1. Real-time/live meeting processing
+2. Zoom integration
+3. Google Meet integration
+4. Microsoft Teams integration
+5. Other external meeting-platform integrations
+
+These will be integrated LATER, only after the core system is stable.
+
+Do NOT divert current development toward these integrations.
+
+CORE SYSTEM DEFINITION
+----------------------
+The core system is stable when this complete pipeline works reliably:
+
+Upload
+→ audio validation
+→ FFmpeg normalization
+→ long-audio chunking
+→ Whisper transcription
+→ transcript database
+→ validated LLM extraction
+→ MOM database
+→ ActionItems database
+→ MOM editing
+→ PDF/DOCX export
+→ authentication
+→ meeting dashboard/history
+→ speaker-aware transcript
+→ background processing
+→ security
+→ automated tests
+→ production deployment
+
+Only after this should live meeting and external meeting-platform integrations be considered.
+
+CODING RULES
+------------
+1. Use Python 3.11-compatible code.
+2. Keep functions focused.
+3. Use service abstractions.
+4. Centralize configuration.
+5. Use environment variables for secrets.
+6. Use Pydantic for validation.
+7. Use SQLAlchemy for persistence.
+8. Use Alembic for schema changes.
+9. Keep FastAPI routes thin.
+10. Keep business logic in services.
+11. Avoid duplicate database writes.
+12. Avoid duplicate LLM calls.
+13. Add useful logs around long-running operations.
+14. Never log secrets.
+15. Handle exceptions explicitly.
+16. Preserve existing APIs when possible.
+17. Avoid unnecessary frameworks.
+18. Prefer simple solutions over premature complexity.
+19. Keep CPU requirements practical.
+
+WHEN PROVIDING CODE
+-------------------
+When the user asks where/how to change code and indentation could be an issue:
+
+- Provide a complete replacement function or file section.
+- Clearly state the exact file path.
+- Preserve indentation.
+- Avoid fragmented snippets when a complete block is safer.
+- For PowerShell, provide commands that can be pasted directly.
+- Use Windows paths.
+- State the directory from which commands should be executed.
+
+DATABASE CHANGE PROCEDURE
+-------------------------
+Whenever changing a model:
+
+1. Modify SQLAlchemy model.
+2. Inspect generated migration.
+3. Apply migration.
+4. Verify database columns and foreign keys.
+5. Test service layer.
+6. Test API endpoint.
+7. Verify actual DB rows.
+
+DEBUGGING PROTOCOL
+------------------
+When an endpoint returns a generic 500:
+
+1. Read the complete traceback.
+2. Find the deepest/root exception.
+3. Identify whether it is:
+   - configuration
+   - dependency
+   - LLM provider
+   - schema
+   - database
+   - migration
+   - serialization
+   - API routing
+   - frontend
+4. Reproduce the smallest failing operation.
+5. Fix the root cause.
+6. Restart backend if code/config changed.
+7. Run a direct Python service test.
+8. Run the HTTP endpoint test.
+9. Verify the database state.
+10. Continue only after the current issue is resolved.
+
+Do not hide useful development errors behind generic messages during debugging.
+
+DEFINITION OF DONE
+------------------
+A phase is complete only when:
+- code is implemented
+- imports succeed
+- schema is correct
+- migrations are applied
+- direct service test succeeds
+- API endpoint succeeds
+- database state is verified
+- existing functionality still works
+- documentation is updated
+
+FINAL PRIORITY
+--------------
+1. Phase 10 — Long audio handling
+2. Phase 11 — Advanced MOM intelligence
+3. Phase 12 — Authentication
+4. Phase 13 — Dashboard/history
+5. Phase 14 — Speaker diarization
+6. Phase 15 — Background processing
+7. Phase 16 — Production security
+8. Phase 17 — Testing/performance
+9. Phase 18 — Production database/deployment
+10. Phase 19 — Advanced AI features
+
+Real-time meetings and external meeting-platform integrations are intentionally deferred until the core system is stable.
+
+PRIMARY OBJECTIVE
+-----------------
+Build a reliable AI MOM Generator, not just a feature-heavy demo.
+
+Every new feature should improve at least one of:
+- reliability
+- accuracy
+- scalability
+- security
+- maintainability
+- usability
+- production readiness
+
+Do not sacrifice core-system stability for flashy features.

@@ -1,0 +1,20 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Environment secrets
+.env
+
+# Node / frontend (added when frontend phase begins)
+node_modules/
+dist/
+
+# Storage (will exist from Phase 2 onward)
+backend/storage/uploads/
+backend/storage/processed/
+backend/storage/outputs/
+
+# OS
+.DS_Store
+Thumbs.db

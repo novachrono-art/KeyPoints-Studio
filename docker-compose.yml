@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # PostgreSQL Database (Phase 18)
+  # ----------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: mom_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mom_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mom_secure_pass_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-mom_db}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mom_user} -d ${POSTGRES_DB:-mom_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mom_network
+
+  # ----------------------------------------------------------------------------
+  # FastAPI Backend Service (Phase 18)
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mom_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mom_user}:${POSTGRES_PASSWORD:-mom_secure_pass_2026}@db:5432/${POSTGRES_DB:-mom_db}
+      SECRET_KEY: ${SECRET_KEY:-prod_super_secret_jwt_key_please_change_in_production_2026}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      LLM_PROVIDER: ${LLM_PROVIDER:-groq}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-base}
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
+      DIARIZATION_ENABLED: ${DIARIZATION_ENABLED:-false}
+      CORS_ORIGINS: http://localhost,http://localhost:80,http://127.0.0.1,http://127.0.0.1:80
+      RATE_LIMIT_ENABLED: "true"
+    volumes:
+      - storage_uploads:/app/storage/uploads
+      - storage_processed:/app/storage/processed
+    networks:
+      - mom_network
+    ports:
+      - "8000:8000"
+
+  # ----------------------------------------------------------------------------
+  # React + Nginx Frontend (Phase 18)
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mom_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks:
+      - mom_network
+
+volumes:
+  pgdata:
+    driver: local
+  storage_uploads:
+    driver: local
+  storage_processed:
+    driver: local
+
+networks:
+  mom_network:
+    driver: bridge

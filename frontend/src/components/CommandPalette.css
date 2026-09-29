@@ -1,0 +1,184 @@
+/* CommandPalette.css - Raycast-Style High Elevation */
+
+.cmd-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 70;
+  padding: 90px 20px 20px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  animation: fadeIn 0.15s ease-out;
+}
+
+.cmd-modal {
+  width: 100%;
+  max-width: 720px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 30px 70px -12px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(79, 70, 229, 0.08);
+  animation: slideUp 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cmd-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.cmd-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+  outline: none;
+}
+
+.cmd-input::placeholder {
+  color: var(--faint);
+}
+
+.cmd-body-split {
+  display: flex;
+  min-height: 320px;
+}
+
+.cmd-list {
+  flex: 1;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.cmd-preview-pane {
+  width: 260px;
+  border-left: 1px solid rgba(226, 232, 240, 0.8);
+  background: rgba(248, 250, 252, 0.65);
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.cmd-preview-icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+}
+
+.cmd-preview-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 6px;
+  line-height: 1.3;
+}
+
+.cmd-preview-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.cmd-preview-meta {
+  width: 100%;
+  border-top: 1px solid rgba(226, 232, 240, 0.8);
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cmd-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cmd-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all .14s ease;
+  margin-bottom: 2px;
+}
+
+.cmd-item:hover,
+.cmd-item.selected {
+  background: rgba(238, 242, 255, 0.95);
+  border: 1px solid rgba(199, 210, 254, 0.7);
+}
+
+.cmd-item-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cmd-item-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.cmd-item-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.cmd-item-shortcut {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(241, 245, 249, 0.9);
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid rgba(203, 213, 225, 0.8);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.cmd-footer {
+  padding: 11px 20px;
+  border-top: 1px solid rgba(226, 232, 240, 0.8);
+  background: rgba(248, 250, 252, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+
+.cmd-footer kbd {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(203, 213, 225, 0.8);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--ink);
+}

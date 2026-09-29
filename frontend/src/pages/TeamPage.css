@@ -1,0 +1,131 @@
+/* TeamPage.css - Frosted Glassmorphism Theme */
+
+.team-page-root {
+  min-height: calc(100vh - 64px);
+  background: transparent;
+  color: var(--ink);
+}
+
+.team-page-wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+}
+
+.team-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.team-title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--ink);
+  margin: 0;
+}
+
+.team-sub {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.team-deck-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.team-deck-card {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 8px 30px rgba(37, 99, 235, 0.06), 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+}
+
+.team-deck-card:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 14px 36px rgba(37, 99, 235, 0.12);
+}
+
+.team-deck-card .lbl {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.team-deck-card .val {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  margin-top: 6px;
+  color: var(--ink);
+}
+
+.team-table-card {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 36px rgba(37, 99, 235, 0.07), 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+.team-table-head {
+  display: grid;
+  grid-template-columns: 2fr 1.2fr 1fr 1fr 1fr;
+  padding: 14px 20px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid rgba(216, 229, 243, 0.7);
+  background: rgba(248, 250, 252, 0.65);
+}
+
+.team-table-row {
+  display: grid;
+  grid-template-columns: 2fr 1.2fr 1fr 1fr 1fr;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(216, 229, 243, 0.5);
+  transition: background .15s ease;
+}
+
+.team-table-row:hover {
+  background: rgba(240, 247, 255, 0.7);
+  backdrop-filter: blur(8px);
+}
+
+.team-table-row:last-child {
+  border-bottom: none;
+}
+
+@media (max-width: 860px) {
+  .team-deck-grid {
+    grid-template-columns: 1fr;
+  }
+  .team-table-head {
+    display: none;
+  }
+  .team-table-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}

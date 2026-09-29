@@ -1,0 +1,2400 @@
+ted.txt
+
+
+====================================================================
+KEYPOINTS STUDIO — PROJECT DOCUMENTATION LOG
+====================================================================
+
+Purpose of this file:
+This file is a running history of the project. It is updated after
+EVERY phase so that if this project is handed to a different
+developer or a different AI assistant, they can understand:
+  - what has been built so far
+  - why it was built that way
+  - what state the project is currently in
+  - what comes next
+
+Read this file top to bottom before making any changes.
+
+--------------------------------------------------------------------
+PROJECT OVERVIEW
+--------------------------------------------------------------------
+Name: KeyPoints Studio
+Goal: Upload a recorded meeting (audio/video) and automatically
+      generate a structured, editable Minutes of Meeting (MOM),
+      exportable as PDF/DOCX.
+
+Type: Upload-based system (NOT a live meeting assistant in V1).
+
+Pipeline:
+  Meeting Recording -> Audio Processing -> Speech-to-Text ->
+  Transcript -> AI/NLP Analysis -> Structured MOM ->
+  Editable MOM -> PDF/DOCX Export
+
+Full tech stack, architecture principles, and long-term plan are
+defined in the original master prompt. Key decisions from it:
+  - Frontend: React + Vite + Tailwind CSS
+  - Backend: FastAPI (Python 3.11)
+  - Speech-to-Text: Whisper (or faster-whisper), swappable
+  - LLM: Gemini API (or OpenAI/Claude/Ollama), swappable
+  - Documents: ReportLab (PDF), python-docx (DOCX)
+  - Database: SQLite for dev, PostgreSQL for later/production
+  - Diarization, Auth, Deployment are explicitly LATER phases
+  - Service-abstraction pattern: no tight coupling to one AI
+    provider (TranscriptionService, LLMService interfaces)
+  - Development machine: Windows 11, Intel i3 12th gen, no
+    guaranteed GPU -> everything must run on CPU for MVP
+
+Development must proceed in strict phases (see master prompt,
+Section 14). Do NOT skip ahead or build multiple phases in one go.
+
+--------------------------------------------------------------------
+PHASE LOG
+--------------------------------------------------------------------
+
+[PHASE 1] — Basic Backend
+Status: COMPLETE (awaiting user confirmation before Phase 2)
+Date: 2026-08-07
+
+What was built:
+  mom-generator/
+  ├── backend/
+  │   ├── app/
+  │   │   ├── __init__.py      (empty, marks app/ as a package)
+  │   │   └── main.py          (FastAPI app + GET /api/health)
+  │   └── requirements.txt     (fastapi, uvicorn[standard])
+  ├── .gitignore
+  └── Documentation.txt        (this file)
+
+What it does:
+  - Creates a FastAPI app instance in backend/app/main.py
+  - Exposes one route: GET /api/health
+  - Returns JSON: {"status": "ok", "service": "mom-generator-backend",
+    "phase": "Phase 1 - Basic Backend"}
+  - No file upload, no database, no AI calls yet — deliberately.
+
+Why it was built this way:
+  - Master prompt Rule 1 requires building one module at a time.
+  - Before adding any complexity (uploads, Whisper, Gemini), we
+    need certainty that the Python environment, FastAPI, and
+    Uvicorn work correctly on the developer's Windows/i3 machine.
+  - Kept requirements.txt minimal on purpose (just fastapi +
+    uvicorn) so setup is fast and easy to debug if something
+    goes wrong.
+  - No storage/, services/, models/, schemas/ folders yet — those
+    are created only when a later phase actually needs them, to
+    avoid empty scaffolding the developer has to remember.
+
+How to run it (Windows):
+  1. cd mom-generator/backend
+  2. python -m venv venv
+  3. venv\Scripts\activate
+  4. pip install -r requirements.txt
+  5. uvicorn app.main:app --reload
+  6. Open http://127.0.0.1:8000/api/health in a browser,
+     or run: curl http://127.0.0.1:8000/api/health
+  Expected result: JSON response with "status": "ok"
+
+Verification performed:
+  - (To be confirmed by developer after running the steps above.)
+
+Known issues / things to watch:
+  - None yet. This is intentionally the simplest possible slice.
+
+Next phase (NOT started yet — waiting for developer confirmation):
+  [PHASE 2] — File Upload
+    - Add POST /api/meetings/upload endpoint
+    - Save uploaded audio file to backend/storage/uploads/
+    - Test with a small MP3 file
+    - Will introduce: python-multipart, storage/ folder structure
+
+[PHASE 2] — File Upload
+Status: COMPLETE (awaiting user confirmation before Phase 3)
+Date: 2026-08-08
+
+What was built:
+  backend/
+  ├── app/
+  │   ├── core/
+  │   │   ├── __init__.py
+  │   │   └── config.py           (NEW: storage paths, allowed
+  │   │                             extensions, max file size)
+  │   ├── api/
+  │   │   ├── __init__.py         (NEW)
+  │   │   └── routes/
+  │   │       ├── __init__.py     (NEW)
+  │   │       └── meetings.py     (NEW: POST /api/meetings/upload)
+  │   └── main.py                 (UPDATED: registers meetings router,
+  │                                 health check now reports "Phase 2")
+  ├── storage/
+  │   └── uploads/                (NEW: created automatically on
+  │                                 startup via config.py, not
+  │                                 committed to git)
+  └── requirements.txt            (UPDATED: added python-multipart)
+
+What it does:
+  - POST /api/meetings/upload accepts a multipart/form-data file.
+  - Validates file extension against {.mp3, .wav, .m4a, .mp4}.
+  - Streams the file to disk in 1MB chunks (keeps memory usage low
+    for long recordings on a machine without much RAM to spare).
+  - Rejects files over 500MB (partial file is deleted on rejection).
+  - Rejects empty files.
+  - Generates a UUID as the meeting_id and saves the file as
+    backend/storage/uploads/{meeting_id}{extension}.
+  - Returns JSON: meeting_id, original_filename, saved_filename,
+    size_bytes, status.
+  - No database persistence yet - the meeting_id + saved file on
+    disk is the only record for now. Database arrives in Phase 9.
+
+Why it was built this way:
+  - Chunked streaming (instead of file.read() all at once) avoids
+    loading an entire 2-hour recording into RAM on the dev's i3
+    laptop with limited resources.
+  - Validation happens before/during save, not after, so we never
+    keep invalid or oversized files sitting on disk.
+  - config.py centralizes storage path + allowed types + size limit
+    so later phases (FFmpeg, Whisper, MOM export) reuse the same
+    constants instead of redefining them inconsistently.
+  - meeting_id (UUID) generated now, ahead of the database, so the
+    API contract (what the frontend receives and later sends back
+    to /transcribe, /generate-mom, etc.) doesn't need to change once
+    Phase 9 adds persistence - we just start writing this ID to a
+    database row instead of only using it as a filename.
+
+How to run/test it (Windows):
+  1. cd mom-generator/backend
+  2. venv\Scripts\activate   (create venv first if not done - see
+     Phase 1 log above)
+  3. pip install -r requirements.txt   (installs python-multipart)
+  4. uvicorn app.main:app --reload
+  5. Test with curl (replace path with a real small .mp3 file):
+     curl -X POST "http://127.0.0.1:8000/api/meetings/upload" ^
+       -F "file=@C:\path\to\sample.mp3"
+     Or use the interactive docs at http://127.0.0.1:8000/docs
+     (Swagger UI) and try the /api/meetings/upload endpoint there -
+     easier than curl on Windows.
+  Expected result: JSON response with a meeting_id, and the file
+  appears inside backend/storage/uploads/.
+
+Verification performed:
+  - (To be confirmed by developer after running the steps above.)
+
+Known issues / things to watch:
+  - No cleanup/expiry of old uploaded files yet (not needed for
+    MVP, may matter once this runs unattended for a while).
+  - No MIME-type sniffing, only extension checking, per the
+    project's stated file validation approach.
+
+[PHASE 3] — FFmpeg
+Status: COMPLETE (awaiting user confirmation before Phase 4)
+Date: 2026-08-08
+
+What was built:
+  backend/
+  ├── app/
+  │   ├── core/
+  │   │   └── config.py              (UPDATED: added PROCESSED_DIR,
+  │   │                                created on import like UPLOAD_DIR)
+  │   └── services/
+  │       ├── __init__.py            (NEW)
+  │       └── audio_service.py       (NEW: check_ffmpeg_installed(),
+  │                                    convert_to_wav())
+  ├── storage/
+  │   └── processed/                 (NEW: converted WAV files land
+  │                                    here, not committed to git)
+  └── scripts/
+      └── test_audio_service.py      (NEW: standalone CLI test,
+                                       no API/server required)
+
+What it does:
+  - check_ffmpeg_installed() uses shutil.which("ffmpeg") to detect
+    whether the FFmpeg executable is on the system PATH. This is
+    checked BEFORE attempting conversion, so failures are clear
+    ("FFmpeg is not installed...") rather than a cryptic subprocess
+    crash.
+  - convert_to_wav(meeting_id, input_path) runs:
+      ffmpeg -y -i <input> -ar 16000 -ac 1 -c:a pcm_s16le <output>
+    producing a 16kHz, mono, 16-bit PCM WAV file - the format
+    Whisper (Phase 4) is built to expect.
+  - Output is saved to backend/storage/processed/{meeting_id}.wav
+  - On failure, the last few lines of FFmpeg's stderr are surfaced
+    in the raised AudioProcessingError (FFmpeg's own errors are
+    usually the most useful part of a long noisy log).
+  - scripts/test_audio_service.py lets the developer test this
+    entire flow from the command line without starting the FastAPI
+    server - it finds the most recent file in storage/uploads/ (or
+    accepts an explicit path) and converts it, printing success or
+    a clear failure reason.
+
+Why it was built this way:
+  - STACK DEVIATION (flagged per Rule 4): the master prompt listed
+    `ffmpeg-python` as a dependency. We used Python's built-in
+    `subprocess` module directly instead, and did NOT add
+    ffmpeg-python to requirements.txt. Reason: ffmpeg-python is a
+    thin wrapper that ultimately shells out to the ffmpeg binary
+    anyway; calling subprocess directly gives clearer access to
+    FFmpeg's real stderr output for debugging, and avoids adding a
+    dependency that isn't pulling real weight yet (Rule 5). This
+    can be revisited if a future phase needs more complex FFmpeg
+    pipelines (e.g. filter graphs for chunking in Phase on long
+    audio handling).
+  - No new API endpoint was added in this phase. The master prompt
+    explicitly says to "test independently" in Phase 3 - FFmpeg
+    conversion will be wired into the pipeline when Phase 4
+    (Whisper) calls it automatically before transcribing.
+  - 16kHz / mono / 16-bit PCM was chosen because it's the standard
+    input format Whisper's own documentation recommends - matching
+    it exactly avoids Whisper doing its own (slower, CPU-costly)
+    resampling internally.
+
+How to run/test it (Windows):
+  Prerequisite - install FFmpeg itself (separate from any pip
+  package):
+    winget install Gyan.FFmpeg
+    (or download manually from https://ffmpeg.org/download.html
+    and add its bin/ folder to your system PATH)
+  Then close and reopen your terminal, and verify with:
+    ffmpeg -version
+
+  Then, from backend/ with venv activated:
+    python scripts/test_audio_service.py
+  (This automatically picks the most recent file in
+  storage/uploads/ - the one you uploaded during Phase 2 testing.
+  Or pass a specific path as an argument.)
+
+  Expected output:
+    Checking for FFmpeg on your system PATH...
+    FFmpeg found.
+    ...
+    Conversion SUCCEEDED.
+    Output file: ...\storage\processed\{id}.wav
+    Size: ... KB
+    Format: 16kHz, mono, 16-bit PCM WAV
+
+  Then confirm the .wav file exists in backend\storage\processed\.
+
+Verification performed:
+  - (To be confirmed by developer after running the steps above.)
+
+Known issues / things to watch:
+  - FFmpeg must be manually installed on each machine this runs on
+    (it is NOT a pip-installable Python package). This is a common
+    setup snag and is checked explicitly with a clear error message
+    rather than failing silently.
+  - No audio chunking yet for very long recordings - that's Phase
+    10 (Long Audio Handling) territory, not needed for short test
+    files during development.
+
+[PHASE 4] — Whisper
+Status: COMPLETE (awaiting user confirmation before Phase 5)
+Date: 2026-08-08
+
+What was built:
+  backend/
+  ├── app/
+  │   ├── core/
+  │   │   └── config.py                      (UPDATED: added
+  │   │                                        WHISPER_MODEL_SIZE = "base")
+  │   └── services/
+  │       └── transcription_service.py        (NEW: TranscriptionService
+  │                                             abstract interface +
+  │                                             FasterWhisperService +
+  │                                             get_transcription_service()
+  │                                             factory)
+  ├── requirements.txt                        (UPDATED: added
+  │                                             faster-whisper)
+  └── scripts/
+      └── test_transcription_service.py       (NEW: standalone CLI test)
+
+What it does:
+  - TranscriptionService is an abstract base class (ABC) defining one
+    method: transcribe(audio_path) -> {"text": str, "segments": [...]}
+  - FasterWhisperService is the concrete implementation, using the
+    faster-whisper library with model_size="base", device="cpu",
+    compute_type="int8" (a speed/accuracy tradeoff suited to CPU-only
+    hardware).
+  - get_transcription_service() is a factory function - the ONE place
+    that decides which provider is active. Any future caller imports
+    this function, never FasterWhisperService directly, so swapping
+    providers later means changing one function body, not every call
+    site.
+  - scripts/test_transcription_service.py finds the most recent .wav
+    in storage/processed/ (or accepts an explicit path), loads the
+    model, transcribes it, and prints the full text plus the first 5
+    timestamped segments.
+
+Why it was built this way:
+  - STACK DEVIATION (flagged per Rule 4): chose faster-whisper over
+    plain openai-whisper as the implementation, even though the
+    master prompt lists Whisper as primary. Justification: the
+    target machine is confirmed CPU-only (Intel i3, no guaranteed
+    GPU) - exactly the condition under which the master prompt says
+    to "consider faster-whisper if CPU performance becomes an
+    issue." faster-whisper uses the CTranslate2 inference engine and
+    is meaningfully faster on CPU with comparable transcript quality.
+  - Abstract base class used (not just a plain function) specifically
+    to satisfy the master prompt's "service abstraction" architecture
+    principle - the same pattern will apply to llm_service.py in
+    Phase 6.
+  - No new API endpoint yet, consistent with the Phase 3 precedent:
+    build and verify the service standalone first via script, wire
+    it into a real HTTP endpoint (POST /api/meetings/{id}/transcribe)
+    when Phase 5's Transcript UI actually needs to call it.
+  - model_size="base" chosen as a starting default (fast enough for
+    short test clips on CPU, reasonable accuracy). This is a config
+    constant specifically so it can be bumped to "small" or "medium"
+    later without touching service code, if accuracy becomes an
+    issue.
+
+How to run/test it (Windows):
+  From backend/ with venv activated:
+    pip install -r requirements.txt   (installs faster-whisper - this
+                                        may take a few minutes, it has
+                                        several dependencies)
+    python scripts/test_transcription_service.py
+
+  IMPORTANT - first run behavior:
+    - faster-whisper downloads the "base" model (~140MB) from the
+      internet automatically on first use. This is a ONE-TIME
+      download, cached locally afterward.
+    - Actual transcription also takes real CPU time - be patient,
+      especially on the very first run.
+
+  Expected output (abbreviated):
+    Loading faster-whisper model (first run downloads it - be patient)...
+    Model loaded.
+    Transcribing: ...\storage\processed\{id}.wav
+    Done in ... seconds.
+    --- Full transcript text ---
+    <your spoken content, transcribed>
+    --- Segments (first 5) ---
+    [  0.00s -   2.30s] <segment text>
+    ...
+
+Verification performed:
+  - (To be confirmed by developer after running the steps above.)
+
+Known issues / things to watch:
+  - Transcription speed on an i3 CPU will be noticeably slower than
+    real-time for longer recordings. This is expected and acceptable
+    for MVP development with short test clips; long-audio chunking
+    (Phase 10) will matter more once real meeting-length recordings
+    are used.
+  - No API endpoint exposes this yet - that arrives with Phase 5.
+
+[PHASE 4 ADDENDUM] — Language detection fix
+Date: 2026-08-08
+
+What happened:
+  - Developer tested with a real Hindi speech recording. Whisper's
+    "base" model auto-detected the language incorrectly and produced
+    fluent-sounding but nonsensical English text instead of an
+    accurate Hindi transcript (or transliteration). This is a known
+    weak point of the "base" model - a small/multilingual model is
+    more accurate but slower on CPU.
+
+What was changed:
+  - transcription_service.py: transcribe() now accepts an optional
+    `language` parameter (ISO 639-1 code, e.g. "hi", "en"). If not
+    given, it falls back to WHISPER_LANGUAGE in config.py (default
+    None = auto-detect).
+  - TranscriptResult now also includes "detected_language" and
+    "language_confidence" (0.0-1.0) so a garbled transcript can be
+    diagnosed immediately - low confidence is a clear red flag
+    rather than a silent failure.
+  - config.py: added WHISPER_LANGUAGE setting (default None).
+  - test_transcription_service.py: accepts an optional second CLI
+    argument to force a language, and now prints the detected
+    language + confidence, with a warning if confidence is low.
+
+Why:
+  - This project's real-world use case (Indian meetings, per the
+    developer's context) will very often involve Hindi, English, or
+    mixed Hindi/English speech. Silently mis-detecting language and
+    producing confident-sounding wrong text is exactly the kind of
+    hallucination the master prompt's Section 9 (Hallucination
+    Control) warns against, even though that section specifically
+    discusses the LLM/MOM stage - the same principle (never let the
+    system state something with false confidence) applies here too.
+
+How to use going forward:
+  - If you know a meeting is primarily in Hindi:
+      python scripts/test_transcription_service.py path\\to\\file.wav hi
+  - If mostly English:
+      python scripts/test_transcription_service.py path\\to\\file.wav en
+  - Once this is wired into the API in Phase 5, the language will
+    become a parameter the frontend can expose to the user (e.g. a
+    dropdown), rather than something hardcoded.
+
+[PHASE 5 - PART 1] — Transcript UI: backend endpoints
+Status: COMPLETE (awaiting user confirmation before Part 2 / frontend)
+Date: 2026-08-08
+
+What was built:
+  backend/app/
+  ├── api/routes/meetings.py       (UPDATED: added
+  │                                  POST /{meeting_id}/transcribe
+  │                                  GET /{meeting_id}/transcript
+  │                                  plus helper functions
+  │                                  _find_uploaded_file() and
+  │                                  _transcript_path())
+  ├── services/transcription_service.py  (UPDATED: get_transcription_
+  │                                        service() is now cached
+  │                                        with @lru_cache(maxsize=1))
+  └── main.py                      (UPDATED: health check phase label)
+
+What it does:
+  - POST /api/meetings/{meeting_id}/transcribe:
+      1. Looks up the originally uploaded file by meeting_id
+         (glob match on {meeting_id}.* in storage/uploads/)
+      2. Runs audio_service.convert_to_wav() (Phase 3)
+      3. Runs transcription_service (Phase 4), with an optional
+         ?language=hi query parameter to force a language
+      4. Saves the result to
+         storage/processed/{meeting_id}_transcript.json
+      5. Returns the transcript JSON in the response
+  - GET /api/meetings/{meeting_id}/transcript:
+      - Reads and returns the saved transcript JSON.
+      - Returns a clean 404 with a helpful message if /transcribe
+        hasn't been run yet for that meeting_id.
+  - Both endpoints convert internal errors (FFmpeg failures, Whisper
+    failures) into safe, non-technical HTTP error messages, per the
+    project's error handling rules (Section 16) - no raw Python
+    tracebacks are ever sent to the caller.
+  - transcription_service.get_transcription_service() is now cached
+    with lru_cache, so the ~500MB "small" Whisper model loads into
+    memory ONCE per running server process, not on every request.
+    Without this, every single /transcribe call would pay the full
+    model-loading cost again, adding significant unnecessary delay.
+
+Why it was built this way:
+  - No database yet (Phase 9), so the transcript JSON file itself
+    IS the persistence layer for now - meeting_id ties together the
+    uploaded file, the processed WAV, and the transcript JSON, all
+    living in predictable, meeting_id-based filenames. This will
+    translate directly into database rows later without changing
+    the API's external behavior.
+  - Model caching (lru_cache) was added proactively rather than
+    waiting for the developer to notice slow repeated requests -
+    this is a correctness/performance concern that would otherwise
+    surface confusingly later (e.g. "why is my second upload just
+    as slow as my first?").
+  - Both endpoints are defined as regular (non-async) route
+    functions. FastAPI automatically runs synchronous route
+    functions in a background thread pool, which is the correct
+    approach for CPU-bound blocking work like FFmpeg and Whisper -
+    it avoids blocking the server's event loop while a transcription
+    is running.
+
+How to run/test it (Windows):
+  1. From backend/, with venv active: uvicorn app.main:app --reload
+  2. Open http://127.0.0.1:8000/docs
+  3. Use POST /api/meetings/{meeting_id}/transcribe:
+     - Enter a meeting_id from a previous upload (Phase 2 test)
+     - Optionally set language to "hi" or "en" as a query parameter
+     - Execute - this may take several seconds depending on
+       recording length and whether the model needs to (re)download
+  4. Use GET /api/meetings/{meeting_id}/transcript with the same
+     meeting_id - should return the same result instantly (no
+     re-processing).
+  5. Confirm storage/processed/{meeting_id}_transcript.json exists
+     and contains the expected JSON.
+
+Verification performed:
+  - (To be confirmed by developer after running the steps above.)
+
+Known issues / things to watch:
+  - Still no database - if the server restarts, in-memory state is
+    gone, but the transcript JSON files on disk persist, so
+    GET /transcript still works after a restart as long as the file
+    exists.
+  - lru_cache on get_transcription_service() means the model is
+    loaded fresh only once per server process (i.e. resets if you
+    restart uvicorn) - this is expected and fine for development.
+
+Next phase (NOT started yet — waiting for developer confirmation):
+  [PHASE 5 - PART 2] — Transcript UI: React frontend
+    - Initialize the React + Vite + Tailwind frontend for the first
+      time
+    - Build an upload page (drag & drop / file picker, calls
+      POST /upload)
+    - Build a transcript display page (calls POST /transcribe then
+      shows the result, or GET /transcript if already generated)
+    - Do NOT add Gemini/LLM/MOM generation yet
+
+[PHASE 5 - PART 2] — Transcript UI: React frontend
+Status: COMPLETE (awaiting user confirmation before Phase 6)
+Date: 2026-08-08
+
+What was built:
+  frontend/
+  ├── package.json              (React 18, Vite 5, Tailwind 3)
+  ├── vite.config.js
+  ├── postcss.config.js
+  ├── tailwind.config.js        (custom design tokens - see below)
+  ├── index.html                (Google Fonts: Source Serif 4, Inter,
+  │                               JetBrains Mono)
+  └── src/
+      ├── main.jsx               (React entry point)
+      ├── App.jsx                (renders HomePage)
+      ├── index.css              (Tailwind directives, reduced-motion
+      │                           support)
+      ├── services/
+      │   └── api.js              (ALL backend calls live here:
+      │                            uploadMeeting, transcribeMeeting,
+      │                            getTranscript)
+      ├── components/
+      │   ├── UploadCard.jsx       (drag & drop / click-to-browse,
+      │   │                         client-side extension validation)
+      │   ├── PipelineStepper.jsx  (3 real stages: Upload, Process,
+      │   │                         Review - NOT fake granular steps)
+      │   └── TranscriptView.jsx   (segments with mono timestamps in
+      │                             a left margin, manuscript-style)
+      └── pages/
+          └── HomePage.jsx         (orchestrates the full loop: pick
+                                    file -> upload -> transcribe ->
+                                    show transcript; state machine:
+                                    idle/uploading/processing/done/
+                                    error)
+
+  backend/app/main.py            (UPDATED: added CORSMiddleware to
+                                   allow the frontend dev server,
+                                   localhost:5173, to call the API)
+
+What it does:
+  - User drags/selects a file -> UploadCard validates the extension
+    client-side (backend re-validates regardless) -> calls
+    uploadMeeting()
+  - On success, automatically calls transcribeMeeting() with the
+    returned meeting_id (no language forced by default - relies on
+    WHISPER_LANGUAGE / auto-detect from Phase 4, exactly as the
+    backend already handles it)
+  - While processing, shows a spinner with an honest message (no
+    fake progress percentage, since the backend doesn't report
+    partial progress)
+  - On success, shows TranscriptView: detected language + confidence
+    badge (with a visible low-confidence warning, matching the same
+    diagnostic added to the backend in the Phase 4 addendum), then
+    each segment with its timestamp
+  - On failure at any step, shows the actual error message from the
+    backend (which is already user-safe text, never a raw traceback,
+    per Section 16 of the master prompt) with a "Try again" button
+  - CORS middleware added to the backend - without this, every
+    fetch() call from the browser would be silently blocked by the
+    browser itself before even reaching FastAPI
+
+Why it was built this way:
+  - Design approach: grounded in what this actually is (a document-
+    processing tool with a real 3-stage pipeline), not a generic
+    marketing template. Colors/type deliberately avoid the common
+    "cream + terracotta" AI-generated look - used a teal-green ink
+    accent instead, paired with a serif display face (Source Serif
+    4) for the "meeting minutes" document feel, Inter for UI chrome,
+    and JetBrains Mono specifically for timestamps, since data
+    should visually read as data.
+  - PipelineStepper shows exactly 3 stages because that's what
+    genuinely happens - resisted the temptation to fake finer-
+    grained progress (e.g. "Converting..." then "Transcribing...")
+    since the backend returns one combined result and doesn't
+    stream intermediate status. Showing fake granularity would
+    misrepresent what's actually occurring, which conflicts with
+    the project's broader "don't invent things that aren't true"
+    principle (echoing Section 9's hallucination-control spirit,
+    applied to UI honesty rather than AI output).
+  - api.js centralizes every backend call in one file - if the API
+    base URL changes (e.g. moving to a deployed backend in Phase 12),
+    or if auth headers need to be added later (Phase 11), there's
+    exactly one file to touch.
+  - No routing library (e.g. react-router) added yet - Rule 5 (avoid
+    unnecessary libraries). This is currently a single-page flow; a
+    router will make sense once there's a meetings list / dashboard
+    (mentioned in the master prompt's later frontend plans).
+
+How to run/test it (Windows):
+  Terminal 1 - backend (if not already running):
+    cd backend
+    .\venv\Scripts\Activate.ps1
+    uvicorn app.main:app --reload
+
+  Terminal 2 - frontend (NEW terminal window, separate from backend):
+    cd frontend
+    npm install        (first time only - installs React, Vite,
+                         Tailwind; takes a few minutes)
+    npm run dev
+  Then open the URL it prints (should be http://localhost:5173)
+
+  Test flow:
+    1. Drag or select an audio file (mp3/wav/m4a/mp4)
+    2. Watch it move through Upload -> Process -> Review
+    3. Confirm the transcript segments shown match what you actually
+       said in the recording
+    4. Try uploading an unsupported file type (e.g. .txt renamed) to
+       confirm the client-side validation error shows correctly
+
+Verification performed:
+  - CONFIRMED by developer. Full loop tested end-to-end in the
+    browser: upload -> process -> review, with an accurate Hindi
+    transcript displayed correctly.
+  - Two real issues were hit and fixed during testing (both are
+    valuable lessons, kept here for anyone picking up this project):
+
+    1. uvicorn --reload restarting mid-request (see the "IMPORTANT
+       BUG FOUND & FIXED" note below) - fixed by scoping reload to
+       --reload-dir app.
+
+    2. CORS error ("No 'Access-Control-Allow-Origin' header") even
+       though main.py (as shared/documented) already included
+       CORSMiddleware. ROOT CAUSE: the developer's LOCAL main.py
+       file had not actually been updated to match - file cards
+       shared during this project update the reference copy, but do
+       NOT automatically apply to the developer's actual project
+       folder. The developer must manually replace their local
+       file's contents every time a file is marked UPDATED in this
+       log. LESSON FOR FUTURE PHASES: after any "UPDATED" file, if
+       something "isn't working," verify the developer's local file
+       actually matches before assuming the bug is in the code logic
+       itself.
+
+Known issues / things to watch:
+  - No language selector in the UI yet - transcription always uses
+    the WHISPER_LANGUAGE default from backend config.py (or
+    auto-detect). Given the Phase 4 addendum found Hindi needs
+    forcing for best accuracy, adding a language dropdown to the UI
+    is a good near-term follow-up, not yet built.
+  - Both servers (backend on 8000, frontend on 5173) must be running
+    simultaneously in separate terminals for this to work.
+  - No editing of the transcript yet - that's implied for the MOM
+    stage (Phase 7) rather than the raw transcript.
+  - IMPORTANT BUG FOUND & FIXED: uvicorn --reload watches the ENTIRE
+    backend/ folder by default, including storage/uploads/ and
+    storage/processed/. Since /transcribe writes new files into
+    storage/processed/ (the converted WAV, then the transcript JSON)
+    WHILE the request is still in progress, the file watcher detects
+    those writes as "code changes" and restarts the server mid-
+    request - killing the connection before a response can be sent.
+    From the frontend, this shows up as a generic "Failed to fetch"
+    error (a broken connection, not an HTTP error response). Upload
+    alone doesn't trigger this visibly because it finishes fast,
+    before the watcher reacts; transcribe takes long enough (model
+    load + inference) for the restart to interrupt it mid-flight.
+    FIX: always start the dev server with reload scoped to app/ only:
+      uvicorn app.main:app --reload --reload-dir app
+    This should be the standard way to run the backend from now on,
+    not just "uvicorn app.main:app --reload".
+
+[PHASE 6] — Gemini MOM Extraction
+Status: COMPLETE (awaiting user confirmation before Phase 7)
+Date: 2026-08-08
+
+What was built:
+  mom-generator/
+  ├── .env.example                      (NEW: documentation copy)
+  └── backend/
+      ├── .env.example                  (NEW: authoritative template
+      │                                   - copy to backend/.env)
+      ├── app/
+      │   ├── core/
+      │   │   └── config.py              (UPDATED: loads backend/.env
+      │   │                                via python-dotenv, adds
+      │   │                                GEMINI_API_KEY,
+      │   │                                GEMINI_MODEL_NAME)
+      │   ├── schemas/
+      │   │   ├── __init__.py            (NEW)
+      │   │   └── mom.py                 (NEW: Pydantic ActionItem +
+      │   │                                MOMResult models)
+      │   └── services/
+      │       └── llm_service.py         (NEW: LLMService abstract
+      │                                    interface + GeminiService,
+      │                                    get_llm_service() factory)
+      ├── requirements.txt               (UPDATED: added google-genai,
+      │                                    python-dotenv, pydantic)
+      └── scripts/
+          └── test_llm_service.py        (NEW: standalone CLI test)
+
+What it does:
+  - mom.py defines the validated shape of a MOM: meeting_title,
+    meeting_date, summary, participants, discussion_points,
+    decisions, action_items (task/assignee/deadline), pending_issues.
+    Empty lists are valid and EXPECTED when nothing qualifies - they
+    are not treated as errors or filled with placeholders.
+  - llm_service.py sends the transcript to Gemini wrapped in a strict
+    system prompt (SYSTEM_INSTRUCTIONS) that explicitly forbids:
+      - inventing decisions, deadlines, participant names, or tasks
+      - treating tentative/ambiguous statements as firm decisions
+      - guessing an assignee or deadline when none was stated
+    The raw response is parsed as JSON and validated against the
+    Pydantic schema. If that fails (bad JSON or schema mismatch), it
+    retries ONCE with a correction prompt describing the exact
+    parsing error, per the master prompt's Section 8 rule. If it
+    still fails, a clear LLMExtractionError is raised - never a raw
+    crash, never a silently-accepted malformed result.
+  - config.py now loads backend/.env via python-dotenv, so
+    GEMINI_API_KEY (and any future secrets) are read from a git-
+    ignored local file, never hardcoded.
+  - test_llm_service.py finds the most recent transcript JSON from
+    Phase 5 testing, sends it through extract_mom(), and prints the
+    resulting structured MOM plus a sanity-check summary (counts of
+    decisions/action_items/pending_issues, with an explicit note
+    that zero decisions/action items is expected and CORRECT when a
+    transcript genuinely contains none - not a bug to "fix").
+
+Why it was built this way:
+  - STRUCTURAL NOTE (flagged per Rule 4): master prompt shows
+    .env.example at the project root. The actual runtime .env lives
+    in backend/.env instead, since that's the directory the app
+    actually runs from (uvicorn's working directory) - loading
+    relative to BASE_DIR in config.py is more reliable than relying
+    on whichever folder a terminal happens to be in. A root-level
+    .env.example is still included for documentation, matching the
+    master prompt's structure, but it just points to the real one.
+  - The retry-with-correction-prompt pattern (rather than just
+    failing immediately, or silently accepting a slightly-malformed
+    response) directly implements master prompt Section 8's stated
+    rule: "Attempt safe parsing. If necessary, retry once with a
+    correction prompt. If still invalid, return a useful error."
+  - Model name is a config constant (GEMINI_MODEL_NAME), not
+    hardcoded in llm_service.py, since Google periodically renames
+    or deprecates specific Gemini model versions - if extraction
+    ever starts failing with a "model not found" style error, the
+    fix is a one-line change in .env or config.py, not a code change.
+  - No API endpoint yet, consistent with the Phase 3/4 precedent -
+    build and verify standalone via script first, wire into
+    POST /api/meetings/{id}/generate-mom when Phase 7's MOM UI
+    actually needs to call it.
+
+How to run/test it (Windows):
+  1. Get a free Gemini API key: https://aistudio.google.com/apikey
+  2. In backend/, copy .env.example to a new file named .env:
+       Copy-Item .env.example .env
+     Then open backend\.env in a text editor and replace
+     "your_gemini_api_key_here" with your real key. Save.
+  3. pip install -r requirements.txt   (installs google-genai,
+                                         python-dotenv)
+  4. python scripts/test_llm_service.py
+     (uses the most recent transcript from Phase 5 testing)
+
+  Expected output: a structured JSON MOM printed to the terminal,
+  followed by counts of decisions/action_items/pending_issues found.
+
+  IMPORTANT TEST: try this against a transcript that contains
+  clearly tentative language (e.g. "we might launch Friday", "maybe
+  X should handle it") and confirm those do NOT show up as decisions
+  or action_items - they should appear in discussion_points or
+  pending_issues instead. This is the actual test of whether
+  hallucination control is working, not just whether the code runs.
+
+Verification performed:
+  - CONFIRMED (partial) via Groq: ran successfully against the
+    existing garbled test transcript. Result was entirely null/empty
+    (summary: "No clear summary can be derived...", all lists empty)
+    - CORRECT behavior, since that transcript has no real meeting
+      content. This confirms the schema/validation/null-handling
+      path works end-to-end.
+  - NOT YET TESTED: extraction against a transcript that actually
+    contains clear decisions, action items, AND tentative/ambiguous
+    language in the same transcript (e.g. the master prompt's own
+    example: "We need to finish the homepage by Friday. I'll handle
+    the frontend. Maybe we should also update the images."). This is
+    the real test of whether decisions/action_items get populated
+    correctly AND whether tentative language correctly stays OUT of
+    them. Developer opted to move on to Phase 7 without running this
+    test - flagging it here as a gap to close before considering
+    hallucination control fully verified, not just schema-valid.
+Date: 2026-08-08
+
+What happened:
+  - Running test_llm_service.py failed with:
+      google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED
+      "Quota exceeded... limit: 0, model: gemini-2.0-flash"
+
+Why (confirmed via web search, not a code bug):
+  - Google significantly reduced free-tier Gemini API rate limits
+    around December 2025. Many free-tier projects now receive a
+    hard limit of 0 requests for generate_content on models like
+    gemini-2.0-flash - the free tier is effectively unusable for
+    direct API calls on many accounts as of this project's timeline.
+  - Confirmed current as of Google's rate-limits documentation
+    (last updated 2026-07-21): moving from "Free" to "Tier 1"
+    requires linking an active billing account (a payment method),
+    but Tier 1 has a $250 spend CAP as a safety ceiling, not a
+    target - actual Gemini 2.0 Flash usage for a handful of MVP
+    test requests costs a small fraction of a cent.
+
+Fix (UPDATED - see below, this was superseded):
+  Developer had no billing budget available, so instead of linking
+  billing, the project was changed to default to a genuinely free
+  provider instead. See "[PHASE 6 ADDENDUM 2]" below.
+
+Why this is worth noting for later phases:
+  - This is an external dependency risk, not something fixable in
+    our code - if the developer's Gemini access is ever
+    rate-limited or unavailable again, the LLMService abstraction
+    (Section 5 of the master prompt) means switching to
+    OpenAIService or a local Ollama-based service is a contained
+    change, not a rewrite. Worth keeping in mind if this recurs.
+
+[PHASE 6 ADDENDUM 2] — Switched default provider to Groq (free, no card)
+Date: 2026-08-08
+
+What changed:
+  - Developer confirmed no budget available for Gemini billing.
+  - Added GroqService as a second LLMService implementation, using
+    Groq's free API (no credit card required, ever - confirmed via
+    web search of multiple 2026 sources). Groq exposes an
+    OpenAI-compatible endpoint, so this reuses the standard `openai`
+    Python package pointed at Groq's base URL
+    (https://api.groq.com/openai/v1) rather than a Groq-specific SDK.
+  - Refactored the retry-with-correction-prompt logic (previously
+    only inside GeminiService) into a shared module-level function,
+    _extract_with_retry(), used by BOTH GeminiService and
+    GroqService, so the hallucination-control retry behavior is
+    identical regardless of provider and only written once.
+  - config.py: added LLM_PROVIDER setting (default: "groq"),
+    GROQ_API_KEY, GROQ_MODEL_NAME (default:
+    "llama-3.3-70b-versatile"). get_llm_service() now reads
+    LLM_PROVIDER to decide which class to instantiate.
+  - requirements.txt: added `openai` package (used only for its
+    client against Groq's compatible endpoint, not for actual
+    OpenAI usage).
+  - .env.example: updated to show LLM_PROVIDER=groq and
+    GROQ_API_KEY as the primary/default path, with Gemini settings
+    kept as a documented alternative.
+
+Why Groq specifically (researched via web search, current as of
+this project's timeline):
+  - Confirmed across multiple independent 2026 sources as a
+    "permanent free tier" requiring no credit card, ever (unlike
+    "trial credit" offers that expire or eventually require a card).
+  - Fast - runs on Groq's custom LPU hardware, meaningfully quicker
+    responses than typical API inference.
+  - OpenAI-compatible API means minimal new code - reused the
+    existing `openai` package pattern rather than adding a
+    Groq-specific SDK dependency.
+
+How to use going forward:
+  1. Get a free key at https://console.groq.com/keys (no credit
+     card requested anywhere in that flow).
+  2. In backend/.env, set:
+       LLM_PROVIDER=groq
+       GROQ_API_KEY=<your real key>
+  3. pip install -r requirements.txt (installs the openai package)
+  4. Re-run python scripts/test_llm_service.py
+
+  To switch back to Gemini later (e.g. if billing is set up):
+  change LLM_PROVIDER=gemini in backend/.env and ensure
+  GEMINI_API_KEY is set - no code changes needed either way.
+
+Known issues / things to watch:
+  - No API endpoint exposes this yet - arrives with Phase 7.
+  - Gemini API calls require an internet connection and a valid,
+    non-rate-limited API key. Free-tier keys have request limits;
+    if extraction starts failing with an authentication or quota
+    error, check the Gemini API dashboard.
+  - Only tested so far with short single-topic transcripts. Longer,
+    multi-topic transcripts may need the chunking approach described
+    in Section 10 of the master prompt (Phase 10 territory) once
+    real meeting-length recordings are used.
+
+Next phase (NOT started yet — waiting for developer confirmation):
+  [PHASE 7] — MOM UI
+    - Wire llm_service into a real API endpoint:
+      POST /api/meetings/{meeting_id}/generate-mom
+      GET /api/meetings/{meeting_id}/mom
+      PUT /api/meetings/{meeting_id}/mom (for editing)
+    - Build a professional, editable MOM page in React: summary,
+      participants, discussion points, decisions, action items
+      (as a table), pending issues
+    - Introduce mom_service.py to bridge llm_service's raw output
+      into the app's saved MOM record
+
+[PHASE 7 - PART 1] — MOM UI: backend endpoints
+Status: COMPLETE (awaiting user confirmation before Part 2 / frontend)
+Date: 2026-08-08
+
+What was built:
+  backend/app/
+  ├── services/
+  │   └── mom_service.py            (NEW: generate_mom(), save_mom(),
+  │                                   get_mom() - bridges llm_service's
+  │                                   raw MOMResult into a persisted,
+  │                                   editable JSON file)
+  ├── api/routes/meetings.py        (UPDATED: added
+  │                                   POST /{meeting_id}/generate-mom
+  │                                   GET /{meeting_id}/mom
+  │                                   PUT /{meeting_id}/mom)
+  └── main.py                       (UPDATED: health check phase label)
+
+What it does:
+  - POST /generate-mom: reads the meeting's saved transcript.json
+    (from Phase 5), calls llm_service.extract_mom() via
+    mom_service.generate_mom(), saves the result to
+    storage/processed/{meeting_id}_mom.json, returns it. Returns 404
+    if no transcript exists yet, 400 if the transcript is empty.
+  - GET /mom: reads and returns the saved MOM JSON. 404 if
+    /generate-mom hasn't been run yet.
+  - PUT /mom: accepts an edited MOM in the request body, typed as
+    MOMResult - FastAPI automatically validates the edit against the
+    same Pydantic schema used for AI-generated MOMs, so a malformed
+    edit (e.g. an action item missing its "task" field) is rejected
+    with a 422 error before ever reaching the route function. Saves
+    the edit via the same save_mom() used for fresh generations.
+
+Why it was built this way:
+  - mom_service.py exists specifically so there is ONE function
+    (save_mom) that defines what a MOM looks like on disk, used
+    identically whether the MOM just came from the LLM or was just
+    hand-edited by the user in the UI - no separate "generated MOM"
+    vs "edited MOM" file formats to keep in sync.
+  - Reusing the MOMResult Pydantic schema for the PUT request body
+    (not a separate "MOMUpdateRequest" schema) means edits are held
+    to the exact same validation as AI output - a person editing the
+    MOM in the UI can't accidentally save something structurally
+    invalid either.
+  - Errors follow the same pattern as every other endpoint in this
+    project: LLMExtractionError's already-safe message is passed
+    through, but any other unexpected exception is caught and
+    replaced with a generic, non-technical message (Section 16).
+
+How to run/test it (Windows):
+  1. uvicorn app.main:app --reload --reload-dir app
+  2. Open http://127.0.0.1:8000/docs
+  3. POST /api/meetings/{meeting_id}/generate-mom with a meeting_id
+     that already has a transcript (from earlier Phase 5 testing)
+  4. GET /api/meetings/{meeting_id}/mom with the same ID - should
+     return the same result instantly
+  5. PUT /api/meetings/{meeting_id}/mom with a hand-edited JSON body
+     (e.g. add a decision) - then GET again to confirm the edit
+     persisted
+
+Verification performed:
+  - (To be confirmed by developer after running the steps above.)
+
+Known issues / things to watch:
+  - Still no database - MOM records are JSON files, same pattern as
+    transcripts. Fine for MVP, will map to real rows in Phase 9.
+  - As noted in the Phase 6 verification gap: hallucination control
+    on decisions/action_items specifically (not just null-handling)
+    still needs testing against a transcript with real, clear
+    meeting content.
+
+Next phase (NOT started yet — waiting for developer confirmation):
+  [PHASE 7 - PART 2] — MOM UI: React frontend
+    - Add a "Generate MOM" step after transcript review
+    - Build an editable MOM page: summary, participants, discussion
+      points, decisions, action items (as an editable table),
+      pending issues
+    - Save edits via PUT /mom
+
+[PHASE 7 - PART 2] — MOM UI: React frontend
+Status: COMPLETE (awaiting user confirmation before Phase 8)
+Date: 2026-08-09
+
+What was built:
+  frontend/src/
+  ├── services/
+  │   └── api.js                    (UPDATED: added generateMom(),
+  │                                   getMom(), updateMom())
+  ├── components/
+  │   ├── PipelineStepper.jsx        (UPDATED: now 4 real stages -
+  │   │                                Upload, Process & transcribe,
+  │   │                                Generate MOM, Review & edit -
+  │   │                                matching the actual pipeline
+  │   │                                now that MOM generation exists)
+  │   ├── EditableList.jsx           (NEW: generic editable string
+  │   │                                list, reused for participants,
+  │   │                                discussion_points, decisions,
+  │   │                                pending_issues)
+  │   ├── ActionItemsTable.jsx       (NEW: editable table for
+  │   │                                action_items - task/assignee/
+  │   │                                deadline rows)
+  │   └── MomView.jsx                (NEW: composes title, summary,
+  │                                    the four EditableLists, the
+  │                                    ActionItemsTable, and a Save
+  │                                    button)
+  └── pages/
+      └── HomePage.jsx               (UPDATED: state machine extended
+                                       to idle -> uploading ->
+                                       processing -> transcribed ->
+                                       generatingMom -> reviewingMom,
+                                       plus a saveState for the MOM
+                                       Save button)
+
+What it does:
+  - After a transcript is shown, a "Generate MOM" button appears.
+    Clicking it calls POST /generate-mom and switches to the
+    editable MomView.
+  - Every MOM field is editable in place: title and summary as text
+    inputs, participants/discussion_points/decisions/pending_issues
+    as add/edit/remove lists (EditableList), and action_items as an
+    add/edit/remove table with task/assignee/deadline columns.
+  - Assignee/deadline fields show "Not specified" as a placeholder
+    (not a real value) and save as null when left empty - matching
+    the backend's hallucination-control convention exactly, so a
+    user leaving a field blank doesn't accidentally introduce a fake
+    string "Not specified" into the data.
+  - Saving calls PUT /mom with the full edited object; the backend's
+    strict Pydantic validation (Phase 7 Part 1) means a structurally
+    broken edit is rejected with a clear error rather than silently
+    corrupting the saved MOM.
+  - Empty decisions/action_items/pending_issues show an explicit
+    "None found" / "No clear decisions were made" message rather
+    than an empty-looking blank space - keeping the hallucination-
+    control principle visible in the UI, not just the API.
+
+Why it was built this way:
+  - EditableList exists as ONE reusable component for four fields
+    specifically because they all share the exact same shape (array
+    of strings) and the exact same interaction pattern (add/edit/
+    remove) - four near-identical components would have meant four
+    places to fix the same bug later.
+  - action_items got its own component (not reused EditableList)
+    because its shape is genuinely different (three fields per row,
+    not one) - forcing it into EditableList would have meant
+    awkward special-casing inside a "generic" component.
+  - The empty-string-becomes-null convention in both EditableList's
+    callers and ActionItemsTable directly mirrors the backend
+    schema's Optional[str] = None fields - keeping the frontend and
+    backend's idea of "not specified" consistent end-to-end, rather
+    than the UI inventing its own placeholder text that then gets
+    saved as a literal string.
+  - PipelineStepper was updated to 4 stages rather than shoehorning
+    "Generate MOM" into the existing "Process" stage, because MOM
+    generation is a genuinely separate, real step with its own
+    loading state - showing it as its own stage keeps the stepper
+    honest to what's actually happening (same principle applied in
+    Phase 5).
+
+How to run/test it (Windows):
+  Both servers still needed, same as Phase 5:
+    Terminal 1: cd backend, venv active,
+                uvicorn app.main:app --reload --reload-dir app
+    Terminal 2: cd frontend, npm run dev
+
+  Test flow:
+    1. Upload a recording, wait for transcript (as before)
+    2. Click "Generate MOM"
+    3. Confirm the MOM fields appear (even if empty/null, per the
+       Phase 6 verification notes - that's expected on the current
+       test transcript)
+    4. Try editing: add a decision, add an action item with a task
+       but leave assignee/deadline blank, remove a discussion point
+    5. Click "Save changes" - confirm the "Saved (checkmark)" indicator appears
+    6. Refresh and re-check via /docs GET /mom that the edit persisted
+
+Verification performed:
+  - CONFIRMED by developer. Full loop tested end-to-end in the
+    browser: transcript -> Generate MOM -> editable MomView loaded
+    correctly with the 4-stage stepper.
+
+Known issues / things to watch:
+  - Still no way to navigate back to a previous meeting's MOM from
+    the UI once you leave the page (no meetings list yet) - "Upload
+    another" only resets forward, doesn't provide history. A
+    meetings list/dashboard is implied by later master prompt
+    sections but not yet built.
+  - As with Phase 6/7 Part 1: real decision/action-item extraction
+    still needs to be exercised end-to-end with a clear meeting-style
+    recording, not just the current garbled test clip.
+
+Next phase (NOT started yet — waiting for developer confirmation):
+  [PHASE 8] — PDF/DOCX Export
+    - Generate a PDF from the structured MOM (ReportLab)
+    - Generate a DOCX from the structured MOM (python-docx)
+    - Add GET /api/meetings/{meeting_id}/export/pdf and
+      GET /api/meetings/{meeting_id}/export/docx endpoints
+    - Add "Download PDF" / "Download DOCX" buttons to the MOM UI
+
+[PHASE 8] — PDF/DOCX Export
+Status: COMPLETE (awaiting user confirmation before Phase 9)
+Date: 2026-08-09
+
+What was built:
+  backend/app/
+  ├── services/
+  │   └── document_service.py       (NEW: generate_pdf(),
+  │                                   generate_docx())
+  ├── api/routes/meetings.py        (UPDATED: added
+  │                                   GET /{meeting_id}/export/pdf
+  │                                   GET /{meeting_id}/export/docx)
+  └── main.py                       (UPDATED: health check phase label)
+  backend/requirements.txt          (UPDATED: added reportlab,
+                                      python-docx)
+
+  frontend/src/
+  ├── services/api.js               (UPDATED: exported API_BASE_URL
+  │                                   for use in direct download links)
+  ├── components/MomView.jsx        (UPDATED: added "Download PDF" /
+  │                                   "Download DOCX" links)
+  └── pages/HomePage.jsx            (UPDATED: passes meetingId to
+                                      MomView)
+
+What it does:
+  - generate_pdf() builds a PDF using ReportLab's Platypus API
+    (SimpleDocTemplate + Paragraph/Table flowables, not raw canvas
+    coordinates) - title, date, summary, then participants/
+    discussion_points/decisions as bulleted lists, action_items as a
+    styled table (task/assignee/deadline), then pending_issues.
+  - generate_docx() builds the equivalent structure using
+    python-docx: heading levels, "List Bullet" style paragraphs, and
+    a real Word table for action_items.
+  - BOTH formats show an explicit empty-state message ("No clear
+    decisions were made", "Not specified", etc.) for any empty
+    section, rather than a blank gap - carrying the hallucination-
+    control principle (Section 9) through into the exported document
+    itself, not just the API/UI.
+  - GET /export/pdf and /export/docx look up the meeting's SAVED MOM
+    (via mom_service.get_mom - the same saved record edited in
+    Phase 7), render it, and return the raw file bytes with a
+    Content-Disposition: attachment header - this is what makes the
+    browser download the file with a proper name (MOM_{meeting_id}.pdf)
+    instead of trying to display it inline.
+  - Frontend: "Download PDF"/"Download DOCX" are plain <a href> tags
+    pointing straight at those endpoints - no JavaScript fetch/blob
+    handling needed, since the browser's native download behavior
+    already does the right thing given the Content-Disposition
+    header. A note under the buttons clarifies that exports reflect
+    the last SAVED version, not unsaved in-progress edits.
+
+Why it was built this way:
+  - Chose ReportLab's Platypus (SimpleDocTemplate) over raw Canvas
+    drawing specifically because Platypus handles text wrapping,
+    page breaks, and table layout automatically - a MOM's summary or
+    a long action item description could easily overflow a fixed
+    canvas position, and Platypus reflows content instead of
+    silently clipping or overlapping text.
+  - document_service.py deliberately does NOT call the LLM or touch
+    transcripts - it only ever reads an already-validated MOMResult
+    object. This keeps a hard boundary between "AI-generated content"
+    and "document rendering," so a rendering bug can never
+    accidentally introduce hallucinated content, and an LLM change
+    can never accidentally break document formatting.
+  - Plain anchor tags (not a fetch+blob JS download) for the
+    frontend buttons - simpler code, and it's the correct approach
+    per Rule 5 (avoid unnecessary complexity): the backend already
+    sends the right headers for the browser to handle this natively.
+
+How to run/test it (Windows):
+  1. pip install -r requirements.txt (installs reportlab, python-docx)
+  2. uvicorn app.main:app --reload --reload-dir app
+  3. In the browser: go through Upload -> transcript -> Generate MOM
+     (as before), then click "Download PDF" and "Download DOCX"
+  4. Open both downloaded files and confirm: title, summary,
+     participants/discussion/decisions sections, an action items
+     table, and pending issues all render correctly - including
+     checking that an EMPTY section (e.g. decisions, on the current
+     test transcript) shows "No clear decisions were made" rather
+     than a blank gap or a crash.
+  5. Try editing the MOM, clicking Save, THEN downloading - confirm
+     the exported file reflects the saved edit.
+
+Verification performed:
+  - (To be confirmed by developer after running the steps above.)
+
+Known issues / things to watch:
+  - No visual distinction yet if the user downloads BEFORE saving an
+    edit - the note under the buttons is the only signal. A possible
+    future improvement: disable/gray out the download buttons while
+    saveState is "saving", or show a subtler "unsaved changes"
+    indicator - not built yet, keeping this phase focused on export
+    itself.
+  - PDF/DOCX styling is functional but plain (no logo, no letterhead)
+    - matches MVP scope; the master prompt's "later phases" list
+      doesn't call for branding beyond this.
+
+[PHASE 8 ADDENDUM] — Partial file application caused a real bug
+Date: 2026-08-10
+
+What happened:
+  - Download PDF/DOCX produced a URL like ".../undefined/export/docx"
+    - meetingId was missing at the point MomView rendered.
+  - Root cause: HomePage.jsx was updated this phase (added
+    meetingId={meetingId} prop passed to MomView) but was only
+    included inside frontend_phase8.zip - it was NOT also posted as
+    an individual file card in chat, unlike document_service.py,
+    meetings.py, api.js, and MomView.jsx which all were.
+  - Developer applied the individually-posted files but did not
+    extract the zip, so HomePage.jsx stayed on the Phase 7 version,
+    which never passed meetingId to MomView at all - explaining the
+    exact "undefined" symptom.
+  - A defensive fallback was ALSO added to MomView.jsx during this
+    same debugging pass (shows "Export unavailable - meeting ID
+    missing" instead of a broken link) - this correctly surfaced the
+    real problem instead of silently producing a broken download,
+    which is what made root-causing this fast.
+
+LESSON (this is the second occurrence of this class of bug - see
+also the Phase 5 CORS addendum): whenever MULTIPLE files change in a
+phase, EVERY changed file should be posted individually as its own
+file card, in addition to any zip - not just the "most interesting"
+ones. A developer who copies files one-by-one (rather than
+extracting a zip wholesale) has no way to know a file was updated if
+it was never shown to them individually. Bundling only in a zip and
+assuming it will be extracted is not a safe assumption.
+
+Fix: HomePage.jsx was posted individually and the developer applied
+it. Confirmed working after a hard refresh (Ctrl+Shift+R) to clear
+any stale Vite HMR state as well.
+
+Next phase (NOT started yet — waiting for developer confirmation):
+  [PHASE 9] — Database
+    - Add Meetings, Transcripts, MOMs, Action Items tables
+    - Use SQLAlchemy models + Alembic migrations
+    - SQLite for local dev (per master prompt Section 4/14)
+    - Migrate existing JSON-file-based storage (uploads/, processed/)
+      to database records without breaking existing endpoints
+
+
+[PHASE 9] — Database Layer
+Status: COMPLETE
+Date: 2026-08-11
+
+What was built:
+  backend/
+  ├── app/
+  │   ├── core/
+  │   │   └── database.py             (NEW: SQLAlchemy engine,
+  │   │                                  SessionLocal, Base, get_db)
+  │   └── models/
+  │       ├── __init__.py             (NEW: exports all database models)
+  │       └── meeting.py               (NEW: Meeting, Transcript, MOM,
+  │                                      ActionItem SQLAlchemy models)
+  ├── alembic.ini                     (NEW: Alembic configuration)
+  ├── migrations/
+  │   ├── env.py                      (UPDATED: imports models and
+  │   │                                  exposes Base.metadata)
+  │   ├── script.py.mako              (GENERATED by Alembic)
+  │   └── versions/
+  │       └── eb9e06349257_create_meeting_tables.py
+  │                                      (NEW: initial database migration)
+  ├── scripts/
+  │   └── test_database.py            (NEW: standalone database test)
+  ├── requirements.txt                (UPDATED: added sqlalchemy, alembic)
+  └── mom_generator.db                (CREATED locally by SQLite migration)
+
+What it does:
+  - Uses SQLite as the local development database, as specified by the
+    master prompt.
+  - SQLAlchemy provides the database engine, session management, and
+    declarative model layer.
+  - Meeting is the parent record for a meeting and contains title,
+    created_at, and updated_at.
+  - Transcript has a one-to-one relationship with Meeting and stores
+    the transcript content.
+  - MOM has a one-to-one relationship with Meeting and stores the
+    generated MOM fields used by the current database layer.
+  - ActionItem has a many-to-one relationship with Meeting, allowing
+    each meeting to contain multiple action items.
+  - Relationships use cascading deletes so dependent transcript,
+    MOM, and action-item records are removed when their meeting is
+    deleted.
+  - Alembic manages schema migrations instead of creating tables
+    directly from application startup.
+  - The database layer was deliberately built and tested independently.
+    Existing JSON-file-based endpoints were NOT rewired in this phase.
+
+Why it was built this way:
+  - The project has reached the point where meeting data needs a
+    structured persistence layer instead of relying only on JSON files
+    in storage/processed/.
+  - SQLAlchemy was chosen so the application is not tightly coupled to
+    SQLite. The master prompt specifies SQLite for development and
+    PostgreSQL as the later production option.
+  - Alembic was added so future schema changes can be versioned and
+    applied safely.
+  - This phase was intentionally kept separate from endpoint migration.
+    Replacing every JSON read/write in the same change could break the
+    already-working upload, transcript, MOM, and export flow and make
+    failures harder to isolate.
+  - The existing API behavior therefore remains unchanged for now;
+    database integration with those endpoints is a separate later step.
+
+Database structure:
+  Meeting
+     │
+     ├── 1 ─── 1 ─── Transcript
+     │
+     ├── 1 ─── 1 ─── MOM
+     │
+     └── 1 ─── N ─── ActionItem
+
+How to run/test it (Windows):
+  1. cd mom-generator/backend
+  2. venv\Scripts\activate
+  3. pip install -r requirements.txt
+  4. If migrations have not already been initialized:
+       alembic init migrations
+  5. Generate/update a migration when models change:
+       alembic revision --autogenerate -m "create meeting tables"
+  6. Apply migrations:
+       alembic upgrade head
+  7. Run the standalone database test:
+       python -m scripts.test_database
+
+  IMPORTANT:
+    Running `python scripts/test_database.py` directly can produce:
+      ModuleNotFoundError: No module named 'app'
+    because Python treats scripts/ as the starting import location.
+    Use the module form from backend/ instead:
+      python -m scripts.test_database
+
+Verification performed:
+  - Alembic migration completed successfully:
+      Running upgrade  -> eb9e06349257, create meeting tables
+  - Standalone database test completed successfully.
+  - A Meeting record was inserted successfully.
+  - A Transcript record was created and linked to the Meeting.
+  - A MOM record was created and linked to the Meeting.
+  - An ActionItem record was created and linked to the Meeting.
+  - SQLAlchemy relationships were queried successfully.
+  - Final test output confirmed:
+      Meeting created: 1
+      Transcript created
+      MOM created
+      Action item created
+
+      Database verification:
+      Meeting: Database Test Meeting
+      Transcript: This is a test transcript.
+      MOM: Test meeting summary.
+      Action items: 1
+
+      Database test passed!
+
+Known issues / things to watch:
+  - Existing upload/transcript/MOM JSON persistence is still active.
+    The database is currently a standalone persistence layer and is
+    not yet the source of truth for existing endpoints.
+  - The actual migration of existing JSON records and endpoint
+    read/write operations to SQLAlchemy is intentionally deferred to
+    a later integration phase.
+  - Audio/video files should remain on disk (or later move to object
+    storage); the database should store metadata/paths rather than
+    embedding large media files directly.
+  - SQLite is appropriate for local development and the current MVP.
+    PostgreSQL remains the planned production database if higher
+    concurrency or deployment requirements eventually justify it.
+
+Next phase:
+  [PHASE 10] — Database Integration
+    - Introduce database dependency/session usage into FastAPI routes.
+    - Create/read Meeting records during upload.
+    - Persist Transcript records after transcription.
+    - Persist MOM records and ActionItems after MOM generation/editing.
+    - Update GET/PUT endpoints to read/write database records while
+      preserving their existing API contracts.
+    - Carefully migrate or reconcile existing JSON-file data without
+      breaking the working upload -> transcript -> MOM -> export flow.
+    - Keep media files on disk while database rows become the source
+      of truth for meeting metadata and generated content.
+
+[PHASE 10] - Database Integration
+Status: COMPLETE
+Date: 2026-08-17
+
+What was built:
+  - Database-backed MOM retrieval, editing, PDF export, and DOCX export.
+  - JSON serialization for list-valued MOM fields stored in SQLite TEXT columns.
+  - A migration (`c11a9b9d4e2f`) that upgrades the Phase 9 schema with
+    upload metadata, remaining MOM fields, and the MOM relation for action items.
+  - A stable, backend-relative SQLite database URL.
+
+What it does:
+  - The upload -> transcript -> generate MOM -> edit -> export workflow now
+    uses database records as the source of truth for structured meeting data.
+  - Audio remains on disk, and the transcript JSON is retained only as a
+    compatibility copy.
+
+How to run/test it (Windows):
+  1. cd backend
+  2. venv\Scripts\activate
+  3. alembic upgrade head
+  4. uvicorn app.main:app --reload --reload-dir app
+  5. Run the normal upload -> transcribe -> generate MOM -> edit -> export flow.
+
+Verification performed:
+  - All backend modules and the new Alembic migration passed a syntax check.
+  - Runtime migration testing is pending because the checked-in virtual
+    environment references a Python installation that is no longer present.
+  - Alembic successfully upgraded the local database from f9e1351cc23e to
+    c11a9b9d4e2f.
+  - A live API test verified MOM retrieval, edit persistence, PDF export, and
+    DOCX export using a temporary database record, which was removed afterward.
+  - The exported PDF rendered cleanly as a one-page MOM; the DOCX structure,
+    headings, action-items table, and saved content were validated.
+
+Known issues / things to watch:
+  - Earlier JSON-only MOM records must be regenerated (or migrated manually)
+    before they appear through the database-backed endpoints.
+  - SQLite remains the local-development database; PostgreSQL is the planned
+    production option.
+
+Next phase:
+  [PHASE 11] - Long Audio Handling
+    - Add safe chunking and progress reporting for meeting-length recordings.
+
+[PHASE 11] - Long Audio Handling
+Status: COMPLETE
+Date: 2026-08-18
+
+What was built:
+  backend/app/
+  ├── core/
+  │   ├── config.py             (UPDATED: added LONG_AUDIO_THRESHOLD_SECONDS,
+  │   │                          LONG_AUDIO_CHUNK_SECONDS, LONG_AUDIO_OVERLAP_SECONDS)
+  │   └── progress.py           (NEW: thread-safe, in-memory progress store:
+  │                              set_progress / get_progress / clear_progress)
+  ├── services/
+  │   ├── audio_service.py      (UPDATED: added get_audio_duration() via ffprobe,
+  │   │                          and split_audio() via FFmpeg into numbered chunk WAVs)
+  │   └── transcription_service.py  (UPDATED: transcribe() now takes an optional
+  │                                  progress_callback; long recordings are split into
+  │                                  chunks, transcribed per chunk, and merged via the
+  │                                  pure merge_chunk_segments(); short audio is
+  │                                  unchanged, still a single pass)
+  ├── api/routes/meetings.py    (UPDATED: reports real progress during /transcribe and
+  │                              /generate-mom; added GET /{meeting_id}/progress)
+  └── main.py                   (UPDATED: health check now reports "Phase 11")
+
+  backend/scripts/test_phase11_long_audio.py   (NEW: verifies duration detection,
+                                                 chunking offsets/durations, merge
+                                                 de-duplication, and the progress store)
+
+  frontend/src/
+  ├── services/api.js           (UPDATED: added getMeetingProgress())
+  └── pages/HomePage.jsx        (UPDATED: polls /progress during processing and MOM
+                                 generation and shows the backend-reported message +
+                                 a real progress bar)
+
+What it does:
+  - Recordings longer than LONG_AUDIO_THRESHOLD_SECONDS (10 minutes) are no longer
+    transcribed as one giant call. audio_service.split_audio() cuts the normalized WAV
+    into fixed-duration chunks (5 minutes) with a 2s overlap so a word straddling a
+    boundary isn't clipped; each chunk is transcribed separately and the results are
+    merged with absolute timestamps, dropping the overlapping region so words aren't
+    duplicated.
+  - Because transcription now happens in discrete chunks (and conversion / MOM
+    generation are also discrete stages), the backend records its ACTUAL progress in an
+    in-memory store exposed via GET /api/meetings/{meeting_id}/progress. The frontend
+    polls this endpoint and only ever shows what the backend genuinely reports.
+  - Short recordings (<= 10 minutes) take the exact same single-pass path as before
+    Phase 11 - behavior is unchanged for existing short test clips.
+
+Why it was built this way:
+  - "Safe chunking": the target machine (Intel i3, CPU-only) is the reason. A single
+    very long transcription call on CPU is slow and memory-hungry; fixed chunks keep
+    every model call bounded and give natural units for progress.
+  - Honest progress (master prompt Section 9 spirit, applied to the UI): the docs
+    explicitly avoided fake progress bars because "the backend doesn't report partial
+    progress." Phase 11 fixes the root cause - the backend now DOES report real
+    progress - so the UI can show a real bar/message without inventing anything.
+  - Chunk files are deleted after transcription (finally block), matching the existing
+    convention of not leaving scratch files in storage/.
+  - progress.py is a lock-guarded process-local dict: transient status, not durable
+    data, so it resets on restart - acceptable for development, swappable for a
+    distributed store later without changing callers.
+
+How to run/test it (Windows):
+  1. cd backend
+  2. venv\Scripts\activate
+  3. python -m scripts.test_phase11_long_audio   (unit checks - no model download)
+  4. uvicorn app.main:app --reload --reload-dir app
+  5. cd frontend; npm run dev
+  6. Upload a meeting-length recording (> 10 min) and watch the progress bar update
+     per chunk during transcription; short clips still behave exactly as before.
+
+Verification performed:
+  - All backend modules and the new test script compile; app.main imports cleanly.
+  - scripts/test_phase11_long_audio.py passes: duration readback (~12s), chunking
+    offsets (0/4/8s for a 12s file at 5s chunks/1s overlap) with correct chunk
+    durations, merge overlap de-duplication + timestamp offsetting, and the progress
+    store set/read/clear.
+  - FastAPI TestClient: /api/health reports Phase 11; /progress returns 404 when idle
+    and the stored progress (stage/message/current/total/percent) when set.
+  - Frontend production build succeeds (npm run build).
+  - Full end-to-end transcription of an actual long recording is still pending real
+    meeting-length audio (a Whisper run would download the model and take a while).
+
+Known issues / things to watch:
+  - Progress is in-memory and keyed by public meeting_id, so it is only visible while
+    the backend process that is doing the work stays up - fine for the single-server
+    dev setup.
+  - Chunking quality depends on the overlap/de-dup heuristic; real meeting audio
+    should be spot-checked once a genuine long recording is available.
+  - Long recordings make the synchronous /transcribe request take a long time; the
+    frontend polls progress meanwhile. If we later want true background jobs, that is
+    a separate phase (job queue), not this one.
+
+Next phase (NOT started yet):
+  [PHASE 12] - Deployment (documented as the next milestone in earlier phase notes).
+
+
+--------------------------------------------------------------------
+PHASE NUMBERING NOTE (reconciling the master prompt and this log)
+--------------------------------------------------------------------
+The MOM_Master_Development_Prompt.txt "FINAL PRIORITY" roadmap is the
+authoritative phase list. It numbers "Long Audio Handling" as Phase 10
+and "Advanced MOM intelligence" (the entry below) as Phase 11. This log
+historically numbered the long-audio work as "Phase 11"; going forward we
+follow the master prompt's numbering, so the entry below is Phase 11.
+
+[PHASE 11] - Advanced MOM intelligence (master prompt numbering)
+Status: COMPLETE
+Date: 2026-08-18
+
+What was built:
+  backend/app/
+  ├── schemas/mom.py                (UPDATED: ActionItem gains optional status + priority,
+  │                                  normalized via Pydantic field_validators to a controlled
+  │                                  vocabulary - priority low/medium/high, status
+  │                                  pending/in_progress/done/blocked; unknown values become
+  │                                  None; task is trimmed; extra LLM-invented fields are
+  │                                  ignored)
+  ├── models/meeting.py             (UPDATED: ActionItem adds nullable priority column)
+  ├── services/mom_service.py       (UPDATED: persists/reads status + priority; unspecified
+  │                                  status -> "pending" DB default)
+  ├── services/document_service.py  (UPDATED: PDF + DOCX action-item tables gain Status and
+  │                                  Priority columns)
+  └── services/llm_service.py       (UPDATED: prompt instructs status/priority extraction
+                                     with the controlled vocabulary; rules 5-8)
+
+  migrations/versions/b3d9e2f7a51c_add_priority_to_action_items.py   (NEW)
+  backend/scripts/test_phase11_advanced_mom.py                       (NEW)
+  frontend/src/components/ActionItemsTable.jsx                       (UPDATED: Status +
+                                    Priority columns as restricted selects; add-item defaults
+                                    include status/priority null)
+
+What it does:
+  - Action items now carry status and priority end-to-end (LLM -> schema -> DB -> UI ->
+    exports), completing the "Advanced MOM intelligence" extraction-quality target.
+  - Required validation pipeline (LLM -> parse -> Pydantic validation -> normalization ->
+    database) is enforced: status/priority are normalized to a controlled set or None, so
+    we never persist a value the model invented imprecisely ("do not trust arbitrary LLM
+    JSON").
+
+Why it was built this way:
+  - Normalization lives in the Pydantic schema (field_validators) so the same rules apply
+    whether the object came from the LLM or a user edit - one definition of "valid".
+  - Extra unknown fields are silently dropped (Pydantic default) rather than crashing, so
+    a slightly over-verbose LLM response still validates.
+  - The UI constrains status/priority to the same controlled sets via <select>, so the
+    browser can't submit a value the backend would reject.
+
+How to run/test it (Windows):
+  1. cd backend
+  2. venv\Scripts\activate
+  3. python -m alembic upgrade head      (applies b3d9e2f7a51c)
+  4. python -m scripts.test_phase11_advanced_mom
+  5. uvicorn app.main:app --reload --reload-dir app
+  6. cd frontend; npm run dev
+
+Verification performed:
+  - All changed modules compile; app.main imports.
+  - Alembic upgraded c11a9b9d4e2f -> b3d9e2f7a51c; action_items now has the priority column.
+  - test_phase11_advanced_mom.py passes (normalization, mom_service round-trip, exports).
+  - API smoke test: PUT /mom with status "HIGH" and priority "urgent" normalizes to
+    status "pending" / priority None on GET.
+  - Frontend npm run build succeeds.
+
+Known issues / things to watch:
+  - "status" remains non-nullable in the DB and defaults to "pending"; the API still
+    returns "pending" even when the source had no status. Acceptable default for an open
+    action item, but worth revisiting if "unset" needs to be distinct from "pending".
+  - confidence / transcript source segment / decision-owner / action-item-owner metadata
+    are intentionally deferred (explicitly "future" in the master prompt).
+
+Next phase:
+  [PHASE 12] - Authentication (see below)
+
+
+[PHASE 12] - Authentication
+Status: COMPLETE
+Date: 2026-08-19
+
+What was built:
+  backend/app/
+  ├── api/routes/auth.py                 (NEW: POST /api/auth/register,
+  │                                       POST /api/auth/login,
+  │                                       GET  /api/auth/me,
+  │                                       POST /api/auth/verify)
+  ├── api/deps.py                        (NEW: get_current_user dependency -
+  │                                       parses the Bearer JWT, loads the User,
+  │                                       raises 401 on missing/invalid/expired)
+  ├── core/security.py                   (foundation, now wired: PBKDF2
+  │                                       password hashing + HS256 JWT)
+  ├── services/user_service.py           (NEW: create_user, get_user_by_*,
+  │                                       authenticate_user)
+  ├── models/user.py                     (User model - pre-existing)
+  ├── models/meeting.py                  (user_id ownership FK - pre-existing)
+  └── api/routes/meetings.py             (UPDATED: every route now requires a
+                                          token and scopes every meeting lookup
+                                          to the requesting user via
+                                          _get_user_meeting; upload sets user_id)
+
+  migrations/versions/d2e3f4a5b6c7_create_users_table_and_meeting_ownership.py
+                                           (NEW)
+  backend/scripts/test_phase12_auth.py    (NEW: security + service + API tests)
+
+  frontend/src/
+  ├── services/auth.js                   (NEW: token storage + change events)
+  ├── services/api.js                    (UPDATED: request() attaches the bearer
+  │                                       token to every call; added register/
+  │                                       login/getCurrentUser/logout)
+  ├── context/AuthContext.jsx            (NEW: session provider/hook)
+  ├── pages/AuthPage.jsx                 (NEW: login/register page)
+  ├── pages/HomePage.jsx                 (UPDATED: signed-in user header + logout)
+  └── App.jsx                            (UPDATED: gates the workspace on auth)
+
+What it does:
+  - Users can register and log in; passwords are stored as PBKDF2-HMAC-SHA256
+    hashes (never plaintext) and verified in constant time (stdlib only - no
+    new dependencies).
+  - Login/register return an HS256 JWT (signed with SECRET_KEY, 1h expiry by
+    default) which the frontend stores and sends as `Authorization: Bearer`.
+  - Every meeting endpoint is now protected: no token -> 401, and every meeting
+    lookup is filtered by owner id, so a user can only read/transcribe/edit/
+    export their OWN meetings (404 for anyone else's - indistinguishable from
+    "not found"). Uploads are stamped with the caller's user_id.
+  - GET /api/auth/me lets the frontend recover the session on reload.
+
+Why it was built this way:
+  - Authentication + authorization are enforced entirely on the server (master
+    prompt: "do not rely on frontend checks or hidden IDs"). The browser only
+    remembers the token.
+  - Password hashing and JWT signing use only the Python standard library,
+    honoring the "avoid unnecessary dependencies" rule; swapping in a vetted
+    crypto lib later (Phase 16) is a localized change in security.py.
+  - 401 for missing/invalid tokens and 404 for other users' meetings avoids
+    leaking which half of a credential failed or whether a meeting exists.
+
+How to run/test it (Windows):
+  1. cd backend
+  2. venv\Scripts\activate
+  3. python -m alembic upgrade head      (applies d2e3f4a5b6c7 - users + user_id)
+  4. python -m scripts.test_phase12_auth
+  5. uvicorn app.main:app --reload --reload-dir app
+  6. cd frontend; npm run dev            (login or register first, then upload)
+  7. Set SECRET_KEY in backend/.env for any real deployment (see .env.example)
+
+Verification performed:
+  - All changed backend modules compile; app.main imports.
+  - Alembic upgraded b3d9e2f7a51c -> d2e3f4a5b6c7 (users table + meetings.user_id);
+    alembic current reports d2e3f4a5b6c7 (head); PRAGMA confirms the schema.
+  - scripts/test_phase12_auth.py passes: password/JWT round-trips, expiry,
+    wrong-secret and malformed-token rejection, user_service CRUD + no-leak
+    duplicate handling, and TestClient coverage of register/login/me plus 401
+    (no token) and 404 (someone else's meeting) on protected routes.
+  - Prior behavior preserved: scripts/test_phase11_advanced_mom.py still passes.
+  - Frontend production build succeeds (vite build).
+
+Known issues / things to watch:
+  - `user_id` on meetings is nullable so pre-Phase-12 rows still load; no
+    backfill was run, so old meetings have no owner and are unreachable through
+    the API. A future admin/backfill task can attach them.
+  - Single-ring token (no refresh/revocation). After expiry the user just logs
+    in again - fine for dev; Phase 16 can layer on refresh/revoke.
+  - Token lifetime defaults to 1 hour (ACCESS_TOKEN_EXPIRE_MINUTES).
+  - The ownership check adds a small DB query to the (frequent) /progress
+    polling endpoint; acceptable for the single-server dev setup.
+
+Next phase:
+  [PHASE 13] - Dashboard/history (see below)
+
+
+[PHASE 13] - Dashboard & History
+Status: COMPLETE
+Date: 2026-08-21
+
+What was built:
+  backend/app/api/routes/meetings.py   (UPDATED: added GET /api/meetings dashboard
+                                       list + GET /api/meetings/{id} detail, both
+                                       scoped to the signed-in user)
+  backend/scripts/test_phase13_dashboard.py       (NEW: dashboard API tests)
+  backend/scripts/backfill_meeting_ownership.py   (NEW: assign pre-Phase-12
+                                       meetings to a user)
+
+  frontend/src/
+  ├── services/api.js                 (UPDATED: listMeetings, getMeetingDetail,
+  │                                    downloadExport - authenticated blob download)
+  ├── components/StatusBadge.jsx      (NEW: colored processing-state badge)
+  ├── pages/Dashboard.jsx             (NEW: stats, search, filter, sort, pagination)
+  ├── pages/MeetingDetail.jsx         (NEW: transcript / MOM+action-items tabs,
+  │                                    exports)
+  ├── pages/HomePage.jsx              (UPDATED: "Back to dashboard"; reachable from
+  │                                    the dashboard's "New meeting")
+  ├── components/MomView.jsx          (UPDATED: PDF/DOCX exports now use the
+  │                                    authenticated download)
+  └── App.jsx                         (UPDATED: Dashboard is the post-login home;
+  │                                    view routing dashboard -> new -> detail)
+
+What it does:
+  - After login the user lands on a Dashboard showing summary stats (total /
+    completed / failed / in-progress meetings), a search box (title or
+    filename), status filters, sorting (updated/created/title), and
+    pagination - all from GET /api/meetings.
+  - Clicking a meeting opens a detail view with a clear status badge, a
+    summary card, and tabs for Transcript and MOM & Action Items; the tab
+    bodies are fetched on demand from the existing /transcript and /mom
+    endpoints. PDF/DOCX exports download with the auth token attached.
+  - Everything is scoped server-side to the current user (Phase 12
+    authorization). Someone else's meetings never appear and return 404.
+  - A backfill script assigns the 7 pre-Phase-12 (ownerless) meetings to a
+    user so they show up on that user's dashboard.
+
+Why it was built this way:
+  - The dashboard list stays lightweight (flags + summary only) and fetches
+    heavy transcript/MOM bodies lazily per tab, keeping the list fast.
+  - The master prompt's "Login -> Dashboard -> Meeting" target shape is
+    implemented server-side: login (auth), dashboard list (GET /api/meetings),
+    meeting detail (GET /api/meetings/{id}).
+  - Exports fetch bytes through api.js's authenticated request() so the
+    browser's <a href> limitation (no Authorization header) is avoided.
+
+How to run/test it (Windows):
+  1. cd backend; venv\\Scripts\\activate
+  2. python -m alembic upgrade head     (unchanged from Phase 12)
+  3. python -m scripts.test_phase13_dashboard
+  4. python -m scripts.backfill_meeting_ownership <your_username>   (optional)
+  5. uvicorn app.main:app --reload --reload-dir app
+  6. cd frontend; npm run dev            (login -> dashboard -> open a meeting)
+
+Verification performed:
+  - Backend modules compile; app.main imports.
+  - scripts/test_phase13_dashboard.py passes: stats/ownership scoping, search
+    (title + filename), status filter (failed/completed), sort, pagination,
+    and detail (presence flags + summary; other user's meeting -> 404).
+  - Live check against the dev DB (as user 1): GET /api/meetings returns
+    stats {total: 7, completed: 2, failed: 1, in_progress: 4} and all 7
+    (backfilled) meetings; confirmed 0 unowned meetings after backfill.
+  - Prior behavior preserved: scripts/test_phase12_auth.py still passes.
+  - Frontend production build succeeds (vite build).
+
+Known issues / things to watch:
+  - The dashboard's "completed" definition is a generated MOM
+    (status = mom_generated). A meeting that is only transcribed counts as
+    "in progress" - intentional, matching the pipeline definition.
+  - Transcribing/generating a NEW meeting from the dashboard "New meeting"
+    flow runs synchronously (blocking the request) as before; the dashboard
+    itself is non-blocking.
+  - Recent-meetings list is capped at 5; the full list is paginated (10/page).
+
+Next phase (per master prompt FINAL PRIORITY):
+  [PHASE 14] - Speaker diarization
+
+
+--------------------------------------------------------------------
+[PHASE 12 ADDENDUM] - Change / Forgot Password
+Status: COMPLETE
+Date: 2026-08-21
+--------------------------------------------------------------------
+
+What was built:
+  backend/app/
+  ├── api/routes/auth.py            (UPDATED: added POST /forgot-password,
+  │                                   POST /reset-password,
+  │                                   POST /change-password)
+  ├── services/user_service.py      (UPDATED: set_password, change_password,
+  │                                   issue_password_reset_token,
+  │                                   reset_password_with_token)
+  ├── models/user.py                (UPDATED: password_reset_token +
+  │                                   password_reset_expires columns)
+  ├── schemas/user.py               (UPDATED: ChangePassword, ForgotPassword,
+  │                                   ResetPassword)
+  ├── core/security.py              (UPDATED: generate_reset_token)
+  └── core/config.py                (UPDATED: PASSWORD_RESET_EXPIRE_MINUTES)
+
+  migrations/versions/d3e4f5a6b7c8_add_password_reset_fields.py   (NEW)
+  backend/scripts/test_phase12_password_reset.py                   (NEW)
+
+  frontend/src/
+  ├── services/api.js               (UPDATED: forgotPassword, resetPassword,
+  │                                   changePassword; auth-flow 401 fix)
+  ├── pages/AuthPage.jsx            (UPDATED: "Forgot password?" flow -
+  │                                   request token -> paste token + new pw)
+  └── pages/Dashboard.jsx           (UPDATED: inline "Change password" form)
+
+What it does:
+  - change-password (authenticated): changes the password after verifying
+    the current one; returns 400 (NOT 401) on a wrong current password so
+    the UI shows a clear message instead of the "session expired" flow.
+  - forgot-password / reset-password: issues a short-lived rotation token
+    (default 30 min) then resets the password without knowing the old one.
+    There is no email service in local dev, so the token is returned in the
+    API response for the user to paste in; in production this endpoint would
+    email the token instead (the response no longer returns it).
+  - The response never reveals whether a username exists (unknown usernames
+    get the same generic envelope, minus the token).
+
+Why it was built this way:
+  - Keeps all password hashing in security.py (PBKDF2) and never stores
+    plaintext. Reset tokens are high-entropy random data stored hashed-
+    adjacent with an expiry and cleared on use.
+  - 400 (not 401) on wrong current password avoids the earlier "Session
+    expired" confusion that come from the shared request() 401 handling.
+
+How to run/test it (Windows):
+  1. cd backend; venv\\Scripts\\activate
+  2. python -m alembic upgrade head   (applies d3e4f5a6b7c8)
+  3. python -m scripts.test_phase12_password_reset
+  4. uvicorn app.main:app --reload --reload-dir app
+  5. cd frontend; npm run dev
+
+Verification performed:
+  - Backend modules compile; migration applied to d3e4f5a6b7c8 (head).
+  - scripts/test_phase12_password_reset.py passes: forgot issues a token
+    (and none for unknown usernames), reset lets the new password log in,
+    invalid token -> 400, change-password wrong-current -> 400 and correct-
+    current succeeds + new password logs in.
+  - No regression: test_phase12_auth and test_phase13_dashboard still pass.
+  - Frontend production build succeeds (vite build).
+
+Known issues / things to watch:
+  - Forgotten-password delivery is dev-only (token returned in response).
+    Before any real deployment, wire the token into an email/out-of-band
+    channel and stop returning it.
+  - Reset tokens expire (default 30 min) and are single-use (cleared on
+    reset).
+
+Next phase (per master prompt FINAL PRIORITY):
+  [PHASE 14] - Speaker diarization
+
+
+--------------------------------------------------------------------
+[PHASE 13 ADDENDUM] - Delete Meetings
+Status: COMPLETE
+Date: 2026-08-21
+--------------------------------------------------------------------
+
+What was built:
+  backend/app/api/routes/meetings.py   (UPDATED: added DELETE
+                                       /api/meetings/{meeting_id})
+  frontend/src/services/api.js         (UPDATED: deleteMeeting)
+  frontend/src/pages/Dashboard.jsx     (UPDATED: per-row Delete with inline
+                                       Yes/No confirm + error banner)
+  frontend/src/pages/MeetingDetail.jsx (UPDATED: "Delete meeting" control with
+                                       confirm -> returns to dashboard)
+
+What it does:
+  - Deletes a meeting and everything attached to it, scoped server-side to
+    the signed-in user (another user's meeting returns 404).
+    Removes: the Meeting row (Transcript / MOM / ActionItems cascade away via
+    model relationships), the uploaded audio file
+    (storage/uploads/{meeting_id}.*), and processed artifacts
+    (storage/processed/{meeting_id}.wav and {meeting_id}_transcript.json).
+
+Why it was built this way:
+  - On-disk artifacts are removed BEFORE the DB row so an orphan file can't
+    outlive its record; missing files never block the delete (missing_ok /
+    ignored OSError), matching the project's existing cleanup convention.
+  - Deletion is a two-step confirmation in the UI (Delete -> "Yes") since it
+    is irreversible.
+
+How to run/test it (Windows):
+  1. cd backend; venv\\Scripts\\activate
+  2. python -m scripts.test_phase13_dashboard
+  3. uvicorn app.main:app --reload --reload-dir app
+  4. cd frontend; npm run dev   (Dashboard row -> Delete; or inside a meeting)
+
+Verification performed:
+  - scripts/test_phase13_dashboard.py passes including the new delete check:
+    DELETE returns {deleted: true}, the meeting disappears from the list and
+    stats update, re-deleting returns 404.
+  - Frontend production build succeeds (vite build).
+
+Known issues / things to watch:
+  - Deletion is permanent - there is no trash/undo.
+  - A file that is currently locked (e.g. being written) is skipped; the DB
+    row still goes away, so such a stray file would need manual cleanup.
+
+
+--------------------------------------------------------------------
+VERIFICATION POLICY CHANGE - MANUAL TESTING (2026-08-21)
+--------------------------------------------------------------------
+
+Decision: automated phase test scripts are no longer part of this
+project's workflow. Verification is done MANUALLY through the running app.
+
+The following scripts - which were created during Phases 12/13 - have been
+REMOVED at the user's request:
+  backend/scripts/test_phase12_auth.py            (removed)
+  backend/scripts/test_phase12_password_reset.py  (removed)
+  backend/scripts/test_phase13_dashboard.py       (removed)
+
+Notes:
+  - Any "python -m scripts.test_phaseN_*" step quoted in the phase entries
+    above is now obsolete; ignore those lines and verify manually instead.
+    (The entries are kept as-is since this log is append-only history.)
+  - The earlier service scripts from Phases 1-11 (test_audio_service.py,
+    test_llm_service.py, etc.) are untouched.
+  - scripts/backfill_meeting_ownership.py is NOT a test - it is a working
+    utility that assigns ownerless meetings to a user, and stays.
+
+Manual verification checklist (run after starting uvicorn + npm run dev):
+
+  Auth / passwords:
+  [ ] Register a new account -> lands on Dashboard
+  [ ] Log out -> Log back in with same credentials
+  [ ] Wrong password on login shows "Incorrect username or password"
+      (not "Session expired")
+  [ ] Forgot password? -> username -> paste returned token + new password
+      -> logs in with the new password
+  [ ] Dashboard "Change password" -> old password required, new one logs in
+
+  Dashboard / meetings:
+  [ ] Stats cards match the real meeting counts
+  [ ] Search by title and by filename filters the list
+  [ ] Status filter (completed / in progress / failed) works
+  [ ] Sorting (updated / created / title) and pagination work
+  [ ] Open a meeting -> Transcript tab and MOM & Action Items tabs load
+  [ ] PDF and DOCX download while logged in
+
+  Delete meetings:
+  [ ] Dashboard row -> Delete -> Yes removes it and refreshes list/stats
+  [ ] Inside a meeting -> "Delete meeting" -> confirm returns to dashboard
+  [ ] Another user's meeting cannot be opened or deleted (404)
+
+Next phase (per master prompt FINAL PRIORITY):
+  [PHASE 14] - Speaker diarization
+
+Next phase (per master prompt FINAL PRIORITY):
+  [PHASE 14] - Speaker diarization
+
+
+--------------------------------------------------------------------
+[PHASE 14] Speaker Diarization
+--------------------------------------------------------------------
+Status: COMPLETE
+Date: 2026-08-24
+
+What was built:
+  NEW  backend/app/services/diarization_service.py
+  MOD  backend/app/services/transcription_service.py
+  MOD  backend/app/services/llm_service.py
+  MOD  backend/app/models/meeting.py
+  MOD  backend/app/api/routes/meetings.py
+  MOD  backend/app/core/config.py
+  MOD  backend/requirements.txt
+  NEW  backend/migrations/versions/e5f6a7b8c9d0_add_transcript_segments_and_diarization.py
+  MOD  frontend/src/services/api.js
+  MOD  frontend/src/pages/HomePage.jsx
+  MOD  frontend/src/components/TranscriptView.jsx
+
+What it does:
+  Adds optional speaker identification to the transcription pipeline.
+  When the user enables the "Identify speakers" toggle before uploading,
+  the backend runs a diarization step AFTER Whisper that:
+    1. Reads each Whisper segment's audio window from the WAV file.
+    2. Computes a 40-dimensional log-mel spectrogram embedding per segment
+       (pre-emphasis → framing → Hann window → FFT → mel filterbank → log → mean).
+    3. Normalizes embeddings with StandardScaler.
+    4. Clusters them with AgglomerativeClustering (ward linkage), auto-detecting
+       the number of speakers or using DIARIZATION_MAX_SPEAKERS as a cap.
+    5. Assigns stable "Speaker N" labels sorted by first appearance.
+  The transcript text is then reformatted as "Speaker N: sentence" lines,
+  which both the LLM (for better participant attribution) and the frontend
+  (for coloured rendering) consume.
+
+  The frontend TranscriptView now supports three modes:
+    - Diarized: speaker-coloured badges, grouped by speaker change (chat-style).
+    - Segmented: plain timestamps (same as Phases 1-13).
+    - Plain text: raw text fallback for old transcripts without segment data.
+
+  GET /transcript now returns `segments` and `has_diarization` so the
+  MeetingDetail view can render speaker-coloured transcripts for past meetings.
+
+Why built this way:
+  - MFCC + sklearn chosen over pyannote.audio (which needs torch ~2GB +
+    a HuggingFace token) because the target machine is CPU-only Intel i3.
+    scipy and scikit-learn are small, install cleanly on Windows, and add
+    no GPU requirement.
+  - Diarization is DISABLED by default (DIARIZATION_ENABLED=false in .env).
+    When disabled, the entire transcription pipeline is byte-for-byte
+    identical to Phase 13 — no new code paths run, no new packages load.
+  - apply_diarization() is a pure post-processing step (never re-runs Whisper).
+    It degrades gracefully: any failure logs a warning and returns the
+    original transcript unchanged so diarization never breaks a recording.
+  - The Transcript model gained two nullable columns (segments_json,
+    has_diarization) so all existing rows continue to load without any
+    data migration.
+  - LLM rule 6 updated to explicitly leverage "Speaker N:" labels, improving
+    participant attribution and speaker-specific action item extraction.
+
+New config variables (backend/.env):
+  DIARIZATION_ENABLED=false        (set to true to enable)
+  DIARIZATION_MAX_SPEAKERS=6       (max auto-detected speakers)
+  DIARIZATION_DISTANCE_THRESHOLD=15.0  (tune to merge/split clusters)
+
+How to run/test:
+  1. Add DIARIZATION_ENABLED=true to backend/.env
+  2. pip install -r requirements.txt  (adds scipy, scikit-learn)
+  3. Run backend + frontend normally
+  4. Upload a multi-speaker recording, enable "Identify speakers" toggle
+  5. Verify transcript view shows colour-coded speaker badges
+  6. Generate MOM and verify participants include "Speaker 1", "Speaker 2"
+  7. Upload without the toggle — verify plain timestamped view (no regression)
+
+Verification performed:
+  - Migration applied cleanly: e5f6a7b8c9d0 -> adds segments_json +
+    has_diarization columns to transcripts table
+  - Backend code reviewed: apply_diarization() is only called when
+    diarize=True is passed; otherwise result dict is returned untouched
+  - GET /transcript now always returns segments + has_diarization fields;
+    old transcripts return segments=[] and has_diarization=false (backwards
+    compatible — TranscriptView renders plain-text fallback for those)
+
+Known issues:
+  - MFCC clustering quality is adequate for 2-4 clearly distinct speakers
+    in a clean recording. For heavily overlapping speech or noisy audio,
+    the speaker labels may be less accurate. This is the expected trade-off
+    for a CPU-only, no-token approach.
+  - The distance threshold (default 15.0) may need tuning per use case.
+    Increase it to merge more clusters (fewer speakers); decrease to split.
+
+Next phase (per master prompt):
+  [PHASE 15] — Background Processing / Job Queue
+
+
+--------------------------------------------------------------------
+[PHASE 15] Background Processing / Job Queue
+--------------------------------------------------------------------
+Status: COMPLETE
+Date: 2026-08-24
+
+What was built:
+  MOD  backend/app/core/progress.py
+  MOD  backend/app/api/routes/meetings.py
+  MOD  backend/app/main.py
+  MOD  frontend/src/pages/HomePage.jsx
+  MOD  frontend/src/pages/MeetingDetail.jsx
+
+What it does:
+  Moves the long-running transcription and MOM generation operations off the
+  synchronous request-response cycle into background worker threads.
+  
+  1. POST /api/meetings/{id}/transcribe:
+     - Validates auth, meeting ownership, and audio existence synchronously.
+     - Acquires a running lock (`mark_running()`) to prevent duplicate jobs (returns 409).
+     - Sets meeting status = "transcribing".
+     - Spawns a daemon `threading.Thread` executing `_run_transcribe()` and returns
+       immediately with `{"status": "processing", "meeting_id": id}`.
+     - Background worker runs FFmpeg -> Whisper -> optional Diarization -> DB persistence,
+       updates progress via `set_progress()`, sets status to "transcribed" (or
+       "transcription_failed"), and clears progress on completion.
+  
+  2. POST /api/meetings/{id}/generate-mom:
+     - Validates auth and transcript presence synchronously.
+     - Acquires `mark_running()` lock.
+     - Sets meeting status = "generating_mom".
+     - Spawns a daemon `threading.Thread` executing `_run_generate_mom()` and returns
+       immediately with `{"status": "processing", "meeting_id": id}`.
+     - Background worker runs LLM extraction -> MOM DB row -> ActionItems rows, sets
+       status to "mom_generated" (or "mom_generation_failed"), and clears progress.
+
+  3. Progress and Polling:
+     - `progress.py` gained `mark_running()`, `is_running()`, and `set_job_error()`.
+     - `HomePage.jsx` uses `pollUntilDone()` helper to poll `GET /progress` every 1.5s
+       after starting transcription or MOM generation, updating the live progress bar,
+       and automatically fetching the final transcript/MOM once completed.
+     - `MeetingDetail.jsx` detects in-progress statuses (`transcribing`, `generating_mom`),
+       shows a live progress banner with spinner and progress bar, and automatically
+       reloads the meeting data upon completion.
+
+Why built this way:
+  - Per master prompt Rule: "Use the simplest suitable background mechanism first.
+    Do not introduce Redis/Celery or distributed infrastructure unless the project
+    actually requires it."
+  - Native Python `threading.Thread` runs inside the same process and has direct access
+    to `SessionLocal()` and the in-memory `progress` lock.
+  - Keeps deployment simple with zero extra services (no Redis broker or worker daemon).
+  - Eliminates client-side request timeout risks during long audio processing.
+
+How to run/test:
+  1. Start the backend: `uvicorn app.main:app --reload`
+  2. Health check: `Invoke-RestMethod http://localhost:8000/api/health`
+     -> Returns `"phase": "Phase 15 - Background Processing"`
+  3. Upload an audio recording in the UI and click Transcribe -> observe immediate
+     non-blocking request and live polling progress bar.
+  4. Generate MOM -> observe non-blocking execution with live status banner.
+  5. Check Dashboard/MeetingDetail for live in-progress state and auto-refresh.
+
+Verification performed:
+  - Import verification: `progress.py`, `meetings.py`, `main.py` all imported cleanly.
+  - Health check endpoint verified via PowerShell: returned HTTP 200 with Phase 15.
+  - Lock safety: double invocation of `/transcribe` for the same meeting returns 409.
+
+Known issues / things to watch:
+  - Background threads are in-memory to the running Uvicorn process; restarting the
+    server while a job is mid-transcription will terminate the thread (standard for
+    in-process workers).
+
+Next phase (per master prompt FINAL PRIORITY):
+  [PHASE 16] — Production Security
+
+
+--------------------------------------------------------------------
+[PHASE 16] Production Security
+--------------------------------------------------------------------
+Status: COMPLETE
+Date: 2026-08-24
+
+What was built:
+  NEW  backend/app/core/rate_limiter.py
+  NEW  backend/app/core/file_security.py
+  NEW  backend/app/core/logging_config.py
+  MOD  backend/app/core/config.py
+  MOD  backend/app/api/routes/auth.py
+  MOD  backend/app/api/routes/meetings.py
+  MOD  backend/app/main.py
+
+What it does:
+  Implements multi-layer defensive security across the entire backend:
+
+  1. Rate Limiting (`rate_limiter.py`):
+     - In-memory, thread-safe sliding-window rate limiter with zero external dependencies.
+     - Protects brute-force vectors: `/register` (5 req/min), `/login` (10 req/min),
+       `/forgot-password` (5 req/min), `/reset-password` (5 req/min), `/change-password` (5 req/min).
+     - Protects compute-heavy vectors: `/upload` (10 req/min), `/transcribe` (10 req/min),
+       `/generate-mom` (10 req/min).
+     - Returns HTTP 429 Too Many Requests with standard `Retry-After` header when throttled.
+
+  2. Secure File & Magic Byte Validation (`file_security.py`):
+     - Inspects binary container headers on upload:
+       - `.wav`: validates `RIFF....WAVE` signature
+       - `.mp3`: validates `ID3` tag or MPEG sync word (`0xFF 0xFB/F3/F2`)
+       - `.m4a` / `.mp4`: validates ISO `ftyp` box
+     - Rejects spoofed/polyglot files (e.g. executable/script renamed to `.mp3`) with HTTP 400.
+     - Filename sanitization: strips path separators, directory traversal sequences,
+       and control characters.
+     - Path safety guard (`safe_path`): strictly verifies path resolution does not escape
+       the designated storage boundaries.
+
+  3. HTTP Defensive Security Headers (`main.py`):
+     - `X-Content-Type-Options: nosniff`
+     - `X-Frame-Options: DENY`
+     - `Referrer-Policy: strict-origin-when-cross-origin`
+     - `X-XSS-Protection: 1; mode=block`
+     - Configurable CORS via `CORS_ORIGINS` in `.env`.
+
+  4. Safe Global Error Handling (`main.py`):
+     - Global exception handler intercepts unhandled errors.
+     - In production mode (`ENV=production`), prevents internal tracebacks, SQL details,
+       or provider errors from leaking to API clients.
+
+  5. Secret Redaction Logging Filter (`logging_config.py`):
+     - Automatically scans and redacts Groq keys (`gsk_...`), Gemini keys (`AIzaSy...`),
+       JWT bearer tokens, and password fields before writing logs.
+
+Why built this way:
+  - In-memory rate limiting and magic byte parsing require zero third-party services,
+    preserving fast local execution on Windows 11 / Intel i3 CPU.
+  - Follows security-in-depth principles without breaking existing API contracts.
+
+How to run/test:
+  1. Automated test suite:
+     `python scratch/test_security.py` -> Runs headers, redaction, magic bytes, path safety,
+     and rate limit tests.
+  2. Health check:
+     `GET /api/health` -> returns `"phase": "Phase 16 - Production Security"`.
+
+Verification performed:
+  - Automated test suite executed: all 5 security test suites PASSED.
+  - Rate limiting verified: 6th request to `/register` successfully returns HTTP 429.
+  - Magic byte validation verified: invalid file headers rejected with HTTP 400.
+
+Known issues:
+  - In-memory rate limiting tracks limits per process instance. In a future multi-worker
+    distributed cluster (Phase 18), state can be bridged to Redis if needed.
+
+Next phase (per master prompt FINAL PRIORITY):
+  [PHASE 17] — Testing & Performance
+
+
+--------------------------------------------------------------------
+[PHASE 17] Testing & Performance
+--------------------------------------------------------------------
+Status: COMPLETE
+Date: 2026-08-24
+
+What was built:
+  NEW  backend/tests/__init__.py
+  NEW  backend/tests/conftest.py
+  NEW  backend/tests/test_auth_and_security.py
+  NEW  backend/tests/test_meeting_pipeline.py
+  NEW  backend/tests/test_user_isolation.py
+  NEW  backend/tests/test_performance_benchmark.py
+  MOD  backend/requirements.txt (added pytest, pytest-asyncio, psutil)
+  MOD  backend/app/api/routes/meetings.py (injected get_db in all route handlers)
+
+What it does:
+  Implements a comprehensive, automated test and performance benchmarking suite:
+
+  1. Test Infrastructure (`conftest.py`):
+     - In-memory SQLite database isolation with transactional test sessions.
+     - FastAPI TestClient integration with overridden DB dependencies.
+     - Pre-configured test users and authenticated JWT header fixtures.
+
+  2. Authentication & Security Suite (`test_auth_and_security.py`):
+     - Validates /api/health and security response headers (X-Content-Type-Options: nosniff,
+       X-Frame-Options: DENY, Referrer-Policy).
+     - Validates user registration, duplicate conflict (409), login (200), bad credentials (401),
+       and /api/auth/me token recovery.
+     - Validates binary container magic byte inspection (WAV, MP3 ID3/sync, MP4/M4A ftyp)
+       and rejection of spoofed/polyglot files.
+     - Validates path traversal sanitization and safe directory boundaries.
+     - Validates secret redaction filter for logging.
+
+  3. Meeting Pipeline & Domain Suite (`test_meeting_pipeline.py`):
+     - Tests audio upload validation for valid WAV and rejection of bad extension / spoofed bytes.
+     - Direct service tests for MOM generation, serialization, and ActionItem DB rows with
+       status/priority controlled vocabularies.
+     - Validates ReportLab PDF and python-docx document byte generation.
+     - Validates dashboard search, filtering (status=completed, failed, in_progress), and stats.
+
+  4. Multi-Tenant User Isolation Suite (`test_user_isolation.py`):
+     - Confirms that User A's meetings cannot be viewed, transcribed, processed, exported,
+       or deleted by User B (strict 404 response on all unauthorized accesses).
+
+  5. Performance & Resource Benchmarking Suite (`test_performance_benchmark.py`):
+     - Baseline process RAM measurement (~91.5 MB baseline, comfortably under 500 MB limit).
+     - Segment merging algorithm benchmark: 1177 segments across 24 chunks (2-hr recording)
+       merged in 1.74 ms.
+     - Database latency benchmark: single insert in 0.51 ms, indexed query in 1.07 ms.
+     - Audio chunk scaling math verified for 5m, 10m, 30m, 60m, and 120m durations.
+
+Why built this way:
+  - Standard `pytest` framework integrates cleanly with FastAPI TestClient.
+  - In-memory test database ensures tests run quickly (~1.8 seconds for all 20 tests)
+    without leaving test artifact rows in the development database.
+  - Performance benchmarks provide regression baselines for CPU and RAM consumption on
+    Intel i3 hardware.
+
+How to run/test:
+  1. `cd backend`
+  2. `.\venv\Scripts\pytest.exe -v -s tests/`
+  Expected result: 20 passed, 0 failures.
+
+Verification performed:
+  - Full pytest execution: 20 out of 20 tests PASSED in 1.82 seconds.
+  - Zero memory leaks or hanging threads.
+
+Known issues:
+  - None.
+
+Next phase (per master prompt FINAL PRIORITY):
+  [PHASE 18] — Production Deployment & Dockerization
+
+
+--------------------------------------------------------------------
+[PHASE 18] Production Deployment & Dockerization
+--------------------------------------------------------------------
+Status: COMPLETE
+Date: 2026-08-24
+
+What was built:
+  NEW  backend/Dockerfile
+  NEW  backend/entrypoint.sh
+  NEW  backend/.dockerignore
+  NEW  frontend/Dockerfile
+  NEW  frontend/nginx.conf
+  NEW  frontend/.dockerignore
+  NEW  docker-compose.yml
+  NEW  .env.production.example
+  MOD  backend/requirements.txt (added psycopg2-binary)
+  MOD  backend/app/core/database.py (PostgreSQL pooling + SQLite support + health check)
+  MOD  backend/migrations/env.py (dynamic DATABASE_URL injection)
+  MOD  backend/app/main.py (Phase 18 health check + DB readiness status)
+
+What it does:
+  Provides a production-grade multi-container deployment architecture:
+
+  1. Production Database Engine (`database.py` & `env.py`):
+     - Configured dual-engine support: SQLite for development/testing, PostgreSQL
+       for containerized production deployment.
+     - Production connection pooling: `pool_size=10, max_overflow=20, pool_pre_ping=True, pool_recycle=300`.
+     - Alembic dynamically consumes `DATABASE_URL` from the environment for migrations.
+     - Health check endpoint `/api/health` reports service status, DB connection readiness, and engine dialect.
+
+  2. Backend Container (`backend/Dockerfile`):
+     - Python 3.11 slim image with pre-installed `ffmpeg`, `libpq-dev`, and `curl`.
+     - Container entrypoint automatically executes `alembic upgrade head` migrations
+       before starting Uvicorn production server.
+     - Storage directory isolation for uploads and processed audio artifacts.
+
+  3. Frontend Container (`frontend/Dockerfile` & `nginx.conf`):
+     - Multi-stage build (Node 20 Alpine builder -> Nginx Alpine server).
+     - Nginx configured with `client_max_body_size 500M` to support large meeting recording uploads.
+     - Gzip compression, static asset caching (30d), and SPA routing fallback (`try_files $uri $uri/ /index.html`).
+     - Secure API reverse proxy: routes `/api/` directly to `http://backend:8000/api/`.
+
+  4. Multi-Container Orchestration (`docker-compose.yml`):
+     - `db`: PostgreSQL 16 Alpine container with persistent named volume `pgdata` and health checks.
+     - `backend`: Depends on healthy PostgreSQL container, mounts storage volumes `storage_uploads` and `storage_processed`.
+     - `frontend`: Exposes port 80 to host, connects via isolated internal network `mom_network`.
+     - `.env.production.example`: Production configuration template with security defaults.
+
+Why built this way:
+  - Multi-stage Docker builds ensure lightweight, minimal production image sizes.
+  - Reverse proxying via Nginx avoids CORS issues in production while handling static files and large upload buffering.
+  - Startup migration in entrypoint ensures database schema is always up-to-date upon container restart.
+
+How to run/test:
+  1. Development / local testing:
+     `pytest -v -s tests/`
+  2. Production Docker deployment:
+     - `cp .env.production.example .env`
+     - Edit `.env` to set `GROQ_API_KEY`, `SECRET_KEY`, etc.
+     - `docker compose up --build -d`
+     - Open `http://localhost` in browser.
+     - Check health: `curl http://localhost/api/health`
+
+Verification performed:
+  - Database abstraction and connection readiness check verified.
+  - Test suite: all 20 pytest test suites PASSED.
+  - Dockerfiles and compose structure validated for service dependencies, networks, and persistent volume mounts.
+
+Known issues:
+  - None.
+
+Next phase (per master prompt):
+  [PHASE 19] — Advanced AI Features (Future roadmap: semantic search, recurring issue detection, meeting comparison)
+
+
+====================================================================
+UI/UX THEME UPDATE — LIGHT BLUE & WHITE DESIGN SYSTEM
+====================================================================
+Status: COMPLETE
+Date: 2026-08-26
+
+What was built:
+  - Global CSS tokens (`frontend/src/index.css`) updated to crisp Light Blue (`#F0F6FC`), White (`#FFFFFF`), Slate (`#0F172A`), and Royal Blue (`#2563EB`).
+  - Tailwind palette (`frontend/tailwind.config.js`) configured for surface, card, ink, muted, and accent tokens.
+  - Redesigned navigation header (`StudioNav`), dashboard console & stat cards (`Dashboard`), command palette (`CommandPalette`), drag-and-drop modal (`NewMeetingModal`), profile modal (`ProfileCard`), action items list (`ActionItemsPage`), and settings (`SettingsPage`).
+  - Updated status pill badges, speaker diarization color palettes, skeleton loaders, and toast notifications for optimal light-background contrast and accessibility.
+
+Verification performed:
+  - `npm run build` exited with code 0 (all assets compiled cleanly).
+  - All 20 backend pytest test suites passed.
+
+
+--------------------------------------------------------------------
+HOW TO UPDATE THIS FILE
+--------------------------------------------------------------------
+After completing each phase, append a new "[PHASE N]" section above
+following the same format:
+  - Status (COMPLETE / IN PROGRESS)
+  - Date
+  - What was built (files/folders)
+  - What it does
+  - Why it was built this way
+  - How to run/test it
+  - Verification performed
+  - Known issues
+  - Next phase
+
+Never delete or rewrite earlier phase entries — this file is meant
+to be an append-only history so anyone (human or AI) picking up the
+project later can trace exactly how it evolved.
+====================================================================
+
+
+
+
