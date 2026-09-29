@@ -27,6 +27,7 @@ COPY . /app/
 
 # Ensure storage directories exist with appropriate permissions
 RUN mkdir -p /app/storage/uploads /app/storage/processed /app/tmp && \
+    sed -i 's/\r$//' /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh
 
 EXPOSE 8000
