@@ -18,7 +18,10 @@ import { clearToken, getToken, setToken } from "./auth.js";
 // URL, not just a relative path. Exported so components can build
 // direct download links (e.g. PDF/DOCX export) without duplicating
 // this constant.
-export const API_BASE_URL = "http://127.0.0.1:8000";
+export const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL !== undefined
+    ? import.meta.env.VITE_API_BASE_URL
+    : "http://127.0.0.1:8000";
 
 /**
  * Perform a fetch with the current access token attached (if present).
