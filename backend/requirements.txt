@@ -30,6 +30,7 @@ pytest-asyncio
 psutil
 
 # Phase 18 (Production Database & Deployment)
+psycopg[binary]
 psycopg2-binary
 
 
