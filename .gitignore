@@ -18,3 +18,5 @@ backend/storage/outputs/
 # OS
 .DS_Store
 Thumbs.db
+backend/storage/.secret_key
+backend/mom_generator.db
